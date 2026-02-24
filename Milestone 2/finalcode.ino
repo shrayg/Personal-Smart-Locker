@@ -32,6 +32,14 @@ const int TH_ROW3_MAX = 863;
 const uint8_t DEBOUNCE_SCANS = 5;
 const uint8_t RELEASE_SCANS  = 5;
 
+static const uint16_t base = 0;
+static const uint8_t  M0 = 'A';
+static const uint8_t  M1 = 'B';
+static const uint8_t  maxLength = 8;
+
+static uint8_t pw[maxLength];
+static uint8_t pwLen = 0;
+
 enum LockState {
   STATE_LOCKED = 0,
   STATE_UNLOCKED = 1,
@@ -40,11 +48,13 @@ enum LockState {
 };
 
 static LockState lockState = STATE_LOCKED;
+static LockState saveReturnState = STATE_UNLOCKED;
 
 static char enteredPassword[5] = {0, 0, 0, 0, 0};
 static uint8_t enteredLen = 0;
 
 static uint8_t unlockHashCount = 0;
+static uint8_t lockedHashCount = 0;
 
 static const unsigned long LOCK_DELAY_MS = 1000;
 static uint32_t lockStartTime = 0;
@@ -150,14 +160,6 @@ static char getKeyEvent() {
 
   return 0;
 }
-
-static const uint16_t base = 0;
-static const uint8_t  M0 = 'A';
-static const uint8_t  M1 = 'B';
-static const uint8_t  maxLength = 8;
-
-static uint8_t pw[maxLength];
-static uint8_t pwLen = 0;
 
 static uint8_t eeRead(uint16_t a) {
   while (EECR & (1 << EEPE)) { }
@@ -270,9 +272,10 @@ void loop() {
 
     if (lockState == STATE_SAVE_PASSWORD) {
       if (key == '*') {
-        lockState = STATE_UNLOCKED;
+        lockState = saveReturnState;
         clearEntered();
         unlockHashCount = 0;
+        lockedHashCount = 0;
         Serial.println("Canceled.");
         return;
       }
@@ -289,9 +292,10 @@ void loop() {
           pwLen = 4;
           savePw(pw, pwLen);
           Serial.println("Password saved.");
-          lockState = STATE_UNLOCKED;
+          lockState = saveReturnState;
           clearEntered();
           unlockHashCount = 0;
+          lockedHashCount = 0;
         }
         return;
       }
@@ -302,6 +306,7 @@ void loop() {
       lockState = STATE_LOCKING;
       clearEntered();
       unlockHashCount = 0;
+      lockedHashCount = 0;
       setServoPulse(LOCK);
       lockStartTime = millis();
       Serial.println("Locking...");
@@ -309,9 +314,11 @@ void loop() {
     }
 
     if (lockState == STATE_UNLOCKED) {
+      lockedHashCount = 0;
       if (key == '#') {
         unlockHashCount++;
         if (unlockHashCount >= 5) {
+          saveReturnState = STATE_UNLOCKED;
           lockState = STATE_SAVE_PASSWORD;
           unlockHashCount = 0;
           clearEntered();
@@ -324,6 +331,7 @@ void loop() {
     }
 
     if (key >= '0' && key <= '9') {
+      lockedHashCount = 0;
       if (enteredLen < 4) {
         enteredPassword[enteredLen] = key;
         enteredLen++;
@@ -332,7 +340,26 @@ void loop() {
     }
 
     if (key == '#') {
-      if (enteredLen == 4 && passwordMatches()) {
+      if (enteredLen == 0) {
+        if (lockedHashCount < 255) lockedHashCount++;
+        if (lockedHashCount >= 5) {
+          saveReturnState = STATE_LOCKED;
+          lockState = STATE_SAVE_PASSWORD;
+          unlockHashCount = 0;
+          lockedHashCount = 0;
+          clearEntered();
+          Serial.println("Enter new 4-digit password, then #");
+        }
+        return;
+      }
+
+      if (enteredLen != 4) {
+        lockedHashCount = 0;
+        return;
+      }
+
+      lockedHashCount = 0;
+      if (passwordMatches()) {
         lockState = STATE_UNLOCKED;
         clearEntered();
         unlockHashCount = 0;
@@ -344,6 +371,8 @@ void loop() {
       }
       return;
     }
+
+    lockedHashCount = 0;
   }
 
   if (Serial.available()) {
