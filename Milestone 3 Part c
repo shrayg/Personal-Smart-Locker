@@ -7,6 +7,13 @@
       - Row2 -> 3.3k -> A0
       - Row3 -> 8.2k -> A0
       - Row4 -> 22k  -> A0
+
+  Milestone 3a:
+    Servo current sense -> A1
+
+  Milestone 3c.b:
+    Sleep after inactivity
+    Wake on keypad press using A0 pin-change interrupt + watchdog check
 */
 
 #include <Arduino.h>
@@ -61,26 +68,27 @@ static uint8_t enteredLen = 0;
 static uint8_t unlockHashCount = 0;
 static uint8_t lockedHashCount = 0;
 
-//SERVO SYSTEM
 static const uint16_t PERIOD = 20000;
 static const uint16_t RESET  = 1500;
 static const uint16_t LOCK   = 1500;
 static const uint16_t UNLOCK = 2470;
 
-//BLOCKAGE DETECTION SYSTEM
 static const uint16_t BLOCK_ADC_THRESHOLD = 70;
 static const uint16_t MOVE_GRACE_MS       = 250;
 static const uint16_t BLOCK_CONFIRM_MS    = 80;
 static const uint16_t MOVE_TIMEOUT_MS     = 700;
 
-//SLEEP SYSTEM
-static const unsigned long IDLE_SLEEP_MS = 15000;
+// Change this for demo if needed
+static const unsigned long IDLE_SLEEP_MS  = 15000;
 
 static uint32_t motionStartTime = 0;
 static uint32_t blockHighStartTime = 0;
 static uint32_t lastActivityTime = 0;
 
 volatile bool wokeFromKeypad = false;
+volatile bool wokeFromWDT = false;
+
+static bool sleepMessagePrinted = false;
 
 static void spamStatus(const char *msg) {
   Serial.println(msg);
@@ -88,6 +96,7 @@ static void spamStatus(const char *msg) {
 
 static void markActivity() {
   lastActivityTime = millis();
+  sleepMessagePrinted = false;
 }
 
 static void clearEntered() {
@@ -339,9 +348,12 @@ static void serviceServoMotion() {
   }
 }
 
-// 3c.b wake interrupt on A0 / PC0 / PCINT8
 ISR(PCINT1_vect) {
   wokeFromKeypad = true;
+}
+
+ISR(WDT_vect) {
+  wokeFromWDT = true;
 }
 
 static void enableWakeOnA0() {
@@ -355,11 +367,30 @@ static void disableWakeOnA0() {
   PCICR  &= ~(1 << PCIE1);
 }
 
+static void enableWatchdogWake() {
+  MCUSR &= ~(1 << WDRF);
+
+  cli();
+  WDTCSR = (1 << WDCE) | (1 << WDE);
+  WDTCSR = (1 << WDIE) | (1 << WDP1);   // ~64 ms interrupt only
+  sei();
+}
+
+static void disableWatchdogWake() {
+  MCUSR &= ~(1 << WDRF);
+
+  cli();
+  WDTCSR = (1 << WDCE) | (1 << WDE);
+  WDTCSR = 0;
+  sei();
+}
+
 static inline void enterPowerDownSleepRaw() {
   SMCR = 0;
   SMCR |= (1 << SM1);   // Power-down mode
   SMCR |= (1 << SE);    // Sleep enable
-  asm volatile("sleep");
+  sei();
+  asm volatile("sleep" ::: "memory");
   SMCR &= ~(1 << SE);
 }
 
@@ -373,31 +404,38 @@ static void enterSleepIfIdle() {
   }
 
   wokeFromKeypad = false;
+  wokeFromWDT = false;
 
   setAllColumnsLowForWake();
   pinMode(ROW_ANALOG_PIN, INPUT);
   digitalWrite(ROW_ANALOG_PIN, LOW);
 
   enableWakeOnA0();
+  enableWatchdogWake();
 
-  // turn off ADC to save power
+  if (!sleepMessagePrinted) {
+    Serial.println("Entering sleep mode...");
+    Serial.flush();
+    delay(10);
+    sleepMessagePrinted = true;
+  }
+
   ADCSRA &= ~(1 << ADEN);
 
   cli();
-  sei();
   enterPowerDownSleepRaw();
 
   disableWakeOnA0();
+  disableWatchdogWake();
 
-  // turn ADC back on
   ADCSRA |= (1 << ADEN);
 
   setAllColumnsHiZ();
   delay(20);
 
-  markActivity();
-
-  if (wokeFromKeypad) {
+  char raw = scanKeyRaw();
+  if (wokeFromKeypad || raw != 0) {
+    markActivity();
     Serial.println("Woke from sleep.");
   }
 }
