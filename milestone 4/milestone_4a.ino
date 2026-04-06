@@ -1,5 +1,5 @@
 /*
-  Milestone 4a — cloned from milestone_3_part_c.ino (Milestone 3c).
+  Milestone 4 (milestone_4a.ino) — cloned from milestone_3_part_c.ino (Milestone 3c).
 
   Wiring summary:
     Columns: C1->D2, C2->D3, C3->D4
