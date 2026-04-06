@@ -17,16 +17,17 @@
     Sleep after inactivity
     Wake on keypad press using A0 pin-change interrupt + watchdog check
 
-  Milestone 4a — battery monitor (low average current):
-    Sense raw battery BEFORE the 5V regulator (9 V pack / external Vin), not VCC.
-    Divider: BAT+ ---[ Rtop 1 MΩ ]--- A2 ---[ Rbottom 330 kΩ ]--- GND
-      Quiescent current from a 9 V nominal pack: ~9 V / 1.33 MΩ ≈ 6.8 µA.
-    Low-battery idea: as cells discharge, Vin to the LDO falls. Thresholds are in
-    millivolts at the pack (tune BAT_WARN_MV / BAT_CRIT_MV for your chemistry).
-    Software reads A2 only once per BAT_CHECK_INTERVAL_MS (not continuously), and
-    uses the internal 1.1 V bandgap to infer actual AVcc so ADC scaling stays
-    reasonable as the rail moves slightly (excellent-aspect: self-calibrated reading).
-    Serial: type B for an instant one-shot reading (still brief ADC use).
+  Milestone 4a — low-battery / weak-supply monitor (5 V rail, low average current):
+    System runs from a regulated ~5 V rail (AVcc). There is no separate high-voltage
+    ADC tap in this design.
+    Detection: the ATmega328P internal 1.1 V bandgap is measured against AVcc so we
+    infer the actual 5 V rail voltage in millivolts. While the regulator holds
+    nominal 5 V, AVcc stays high; as the upstream battery weakens, the LDO can no
+    longer maintain regulation and AVcc sags — that is when we warn (before brownout).
+    Checks run only every RAIL_CHECK_INTERVAL_MS (not continuously), so average extra
+    current is negligible (brief ADC conversions only).
+    Tune RAIL_WARN_MV / RAIL_CRIT_MV for your regulator and load (defaults ~4.7 V /
+    4.4 V). Serial: B for one-shot rail reading.
 */
 
 #include <Arduino.h>
@@ -37,22 +38,18 @@
 const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
 const uint8_t SERVO_SENSE_PIN = A1;
-const uint8_t BAT_ADC_PIN     = A2;
 
-static const uint32_t BAT_RTOP_OHM = 1000000UL;
-static const uint32_t BAT_RBOT_OHM = 330000UL;
+static const uint16_t RAIL_WARN_MV = 4700;
+static const uint16_t RAIL_CRIT_MV = 4400;
 
-static const uint16_t BAT_WARN_MV = 7200;
-static const uint16_t BAT_CRIT_MV = 6600;
+static const unsigned long RAIL_CHECK_INTERVAL_MS = 60000UL;
+static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
+static const uint8_t       RAIL_CONSEC_BELOW_WARN = 2;
 
-static const unsigned long BAT_CHECK_INTERVAL_MS = 60000UL;
-static const unsigned long BAT_ALERT_REPEAT_MS   = 300000UL;
-static const uint8_t     BAT_CONSEC_BELOW_WARN   = 2;
-
-static uint32_t lastBatCheckMs = 0;
-static uint32_t lastBatAlertMs = 0;
-static uint8_t  batBelowWarnStreak = 0;
-static uint8_t  batLevel = 0;
+static uint32_t lastRailCheckMs = 0;
+static uint32_t lastRailAlertMs = 0;
+static uint8_t  railBelowWarnStreak = 0;
+static uint8_t  railLevel = 0;
 
 const char KEYMAP[4][3] = {
   {'1','2','3'},
@@ -185,98 +182,78 @@ static uint16_t readAvccMilliVolts() {
   return (uint16_t)(1125300UL / adc);
 }
 
-static uint32_t readBatteryPackMilliVolts() {
-  uint32_t vcc = readAvccMilliVolts();
+static uint16_t readFiveVRailMilliVoltsAveraged() {
   uint32_t sum = 0;
   for (uint8_t i = 0; i < 4; i++) {
-    sum += (uint32_t)analogRead(BAT_ADC_PIN);
-    delayMicroseconds(120);
+    sum += readAvccMilliVolts();
+    delayMicroseconds(80);
   }
-  uint32_t adc = sum / 4;
-  if (adc < 8) {
-    return 99999UL;
-  }
-  uint32_t vdiv_mv = (adc * vcc) / 1023UL;
-  uint32_t rsum = BAT_RTOP_OHM + BAT_RBOT_OHM;
-  return (vdiv_mv * rsum) / BAT_RBOT_OHM;
+  return (uint16_t)(sum / 4);
 }
 
-static void printBatteryReading(uint32_t vbat_mv) {
-  Serial.print("Battery ~");
-  Serial.print(vbat_mv / 1000);
+static void printRailMilliVolts(uint16_t rail_mv) {
+  Serial.print("5 V rail (AVcc est.) ~");
+  Serial.print(rail_mv / 1000);
   Serial.print('.');
-  Serial.print((vbat_mv % 1000) / 100);
-  Serial.println(" V (pack, pre-regulator estimate)");
+  Serial.print((rail_mv % 1000) / 100);
+  Serial.println(" V");
 }
 
 static void maybeCheckBattery() {
   unsigned long now = millis();
-  if ((unsigned long)(now - lastBatCheckMs) < BAT_CHECK_INTERVAL_MS) {
+  if ((unsigned long)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS) {
     return;
   }
-  lastBatCheckMs = now;
+  lastRailCheckMs = now;
 
-  uint32_t vbat = readBatteryPackMilliVolts();
+  uint16_t rail = readFiveVRailMilliVoltsAveraged();
 
-  if (vbat >= BAT_WARN_MV) {
-    batBelowWarnStreak = 0;
-    if (batLevel != 0) {
-      Serial.println("Battery OK (above warning threshold).");
-      batLevel = 0;
+  if (rail >= RAIL_WARN_MV) {
+    railBelowWarnStreak = 0;
+    if (railLevel != 0) {
+      Serial.println("Supply OK (5 V rail above warning threshold).");
+      railLevel = 0;
     }
     return;
   }
 
-  if (batBelowWarnStreak < 255) {
-    batBelowWarnStreak++;
+  if (railBelowWarnStreak < 255) {
+    railBelowWarnStreak++;
   }
-  if (batBelowWarnStreak < BAT_CONSEC_BELOW_WARN) {
+  if (railBelowWarnStreak < RAIL_CONSEC_BELOW_WARN) {
     return;
   }
 
-  uint8_t newLevel = (vbat < BAT_CRIT_MV) ? 2u : 1u;
-  bool escalate = (newLevel > batLevel);
-  batLevel = newLevel;
+  uint8_t newLevel = (rail < RAIL_CRIT_MV) ? 2u : 1u;
+  bool escalate = (newLevel > railLevel);
+  railLevel = newLevel;
 
-  if (!escalate && (unsigned long)(now - lastBatAlertMs) < BAT_ALERT_REPEAT_MS) {
+  if (!escalate && (unsigned long)(now - lastRailAlertMs) < RAIL_ALERT_REPEAT_MS) {
     return;
   }
-  lastBatAlertMs = now;
+  lastRailAlertMs = now;
 
   Serial.print("ALERT: ");
-  if (batLevel >= 2) {
-    Serial.print("BATTERY CRITICAL — ");
-    printBatteryReading(vbat);
-    Serial.println("Replace before lockout.");
+  if (railLevel >= 2) {
+    Serial.print("POWER CRITICAL — ");
+    printRailMilliVolts(rail);
+    Serial.println("Battery/source too weak; replace before lockout.");
   } else {
-    Serial.print("BATTERY LOW — ");
-    printBatteryReading(vbat);
-    Serial.println("Replace soon.");
+    Serial.print("POWER LOW — ");
+    printRailMilliVolts(rail);
+    Serial.println("Replace battery or recharge soon.");
   }
 }
 
 static void batteryStatusOnDemand() {
-  uint32_t vcc = readAvccMilliVolts();
-  uint32_t sum = 0;
-  for (uint8_t i = 0; i < 4; i++) {
-    sum += (uint32_t)analogRead(BAT_ADC_PIN);
-    delayMicroseconds(120);
-  }
-  uint32_t adc = sum / 4;
-  if (adc < 8) {
-    Serial.println("Battery sense: no signal on A2 (check 1M/330k divider from pack+).");
-    return;
-  }
-  uint32_t vdiv_mv = (adc * vcc) / 1023UL;
-  uint32_t rsum = BAT_RTOP_OHM + BAT_RBOT_OHM;
-  uint32_t vbat = (vdiv_mv * rsum) / BAT_RBOT_OHM;
-  printBatteryReading(vbat);
-  if (vbat < BAT_CRIT_MV) {
+  uint16_t rail = readFiveVRailMilliVoltsAveraged();
+  printRailMilliVolts(rail);
+  if (rail < RAIL_CRIT_MV) {
     Serial.println("(below critical threshold)");
-  } else if (vbat < BAT_WARN_MV) {
+  } else if (rail < RAIL_WARN_MV) {
     Serial.println("(below warning threshold)");
   } else {
-    Serial.println("(above warning threshold)");
+    Serial.println("(nominal 5 V rail — OK)");
   }
 }
 
@@ -584,14 +561,13 @@ void setup() {
   setAllColumnsHiZ();
   pinMode(ROW_ANALOG_PIN, INPUT);
   pinMode(SERVO_SENSE_PIN, INPUT);
-  pinMode(BAT_ADC_PIN, INPUT);
 
   if (loadPw())
     Serial.println("Loaded password from EEPROM.");
   else
     Serial.println("No password found in EEPROM.");
 
-  Serial.println("Manual commands: S <code> to save password, T <code> to test password, L to lock, U to unlock, R to reset, B battery");
+  Serial.println("Manual commands: S <code> to save password, T <code> to test password, L to lock, U to unlock, R to reset, B 5V rail check");
   Serial.println("User commands: ##### <code> # to save password, <code> # to test password, * to lock");
 
   setupTimer1();
