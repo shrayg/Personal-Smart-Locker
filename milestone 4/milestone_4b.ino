@@ -51,6 +51,9 @@ const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
 const uint8_t SERVO_SENSE_PIN = A1;
 const uint8_t BUZZER_PIN      = 5;
+const uint8_t redPin          = 6;
+const uint8_t greenPin        = 7;
+const uint8_t yellowPin       = 8;
 
 static const uint16_t BUZZER_HZ = 2000;
 
@@ -206,6 +209,14 @@ enum LockState {
   STATE_UNLOCKING = 4
 };
 
+enum LedEvent {
+  LED_EVENT_NONE = 0,
+  LED_EVENT_WRONG = 1,
+  LED_EVENT_BLOCKED = 2,
+  LED_EVENT_SAVED = 3,
+  LED_EVENT_WAKE = 4
+};
+
 static LockState lockState = STATE_LOCKED;
 static LockState saveReturnState = STATE_UNLOCKED;
 
@@ -239,6 +250,9 @@ volatile bool wokeFromKeypad = false;
 volatile bool wokeFromWDT = false;
 
 static bool sleepMessagePrinted = false;
+static LedEvent ledEvent = LED_EVENT_NONE;
+static uint32_t ledEventStart = 0;
+static bool ledsSleeping = false;
 
 static void spamStatus(const char *msg) {
   Serial.println(msg);
@@ -260,6 +274,82 @@ static bool passwordMatches() {
   if (pwLen != 4) return false;
   enteredPassword[4] = 0;
   return match(enteredPassword);
+}
+
+static void setLeds(bool redOn, bool greenOn, bool yellowOn) {
+  digitalWrite(redPin, redOn ? HIGH : LOW);
+  digitalWrite(greenPin, greenOn ? HIGH : LOW);
+  digitalWrite(yellowPin, yellowOn ? HIGH : LOW);
+}
+
+static void initLeds() {
+  pinMode(redPin, OUTPUT);
+  pinMode(greenPin, OUTPUT);
+  pinMode(yellowPin, OUTPUT);
+  setLeds(false, false, false);
+}
+
+static void startLedEvent(LedEvent eventValue) {
+  ledEvent = eventValue;
+  ledEventStart = millis();
+}
+
+static void runLeds() {
+  uint32_t now = millis();
+
+  if (ledsSleeping) {
+    setLeds(false, false, false);
+    return;
+  }
+
+  if (ledEvent != LED_EVENT_NONE) {
+    uint32_t dt = now - ledEventStart;
+
+    if (ledEvent == LED_EVENT_WRONG) {
+      if (dt < 900) {
+        bool redOn = ((dt / 120) % 2) == 0;
+        setLeds(redOn, false, false);
+        return;
+      }
+      ledEvent = LED_EVENT_NONE;
+    } else if (ledEvent == LED_EVENT_BLOCKED) {
+      if (dt < 1000) {
+        bool on = ((dt / 120) % 2) == 0;
+        setLeds(on, false, on);
+        return;
+      }
+      ledEvent = LED_EVENT_NONE;
+    } else if (ledEvent == LED_EVENT_SAVED) {
+      if (dt < 900) {
+        bool yellowOn = ((dt / 150) % 2) == 0;
+        setLeds(false, false, yellowOn);
+        return;
+      }
+      ledEvent = LED_EVENT_NONE;
+    } else if (ledEvent == LED_EVENT_WAKE) {
+      if (dt < 500) {
+        bool greenOn = ((dt / 125) % 2) == 0;
+        setLeds(false, greenOn, false);
+        return;
+      }
+      ledEvent = LED_EVENT_NONE;
+    } else {
+      ledEvent = LED_EVENT_NONE;
+    }
+  }
+
+  if (lockState == STATE_SAVE_PASSWORD) {
+    bool yellowOn = ((now / 300) % 2) == 0;
+    setLeds(false, false, yellowOn);
+    return;
+  }
+
+  if (lockState == STATE_UNLOCKED || lockState == STATE_UNLOCKING) {
+    setLeds(false, true, false);
+    return;
+  }
+
+  setLeds(true, false, false);
 }
 
 static void setAllColumnsHiZ() {
@@ -556,6 +646,7 @@ static void finishServoMotionBlocked() {
     spamStatus("BLOCKED MOTOR -> REVERTED TO LOCKED");
   }
 
+  startLedEvent(LED_EVENT_BLOCKED);
   clearEntered();
   unlockHashCount = 0;
   lockedHashCount = 0;
@@ -660,6 +751,9 @@ static void enterSleepIfIdle() {
     sleepMessagePrinted = true;
   }
 
+  ledsSleeping = true;
+  setLeds(false, false, false);
+
   buzzerStopTone();
   buzzerMode = BUZZ_IDLE;
   buzzerToneOn = false;
@@ -677,10 +771,13 @@ static void enterSleepIfIdle() {
   setAllColumnsHiZ();
   delay(20);
 
+  ledsSleeping = false;
+
   char raw = scanKeyRaw();
   if (wokeFromKeypad || raw != 0) {
     markActivity();
     Serial.println("Woke from sleep.");
+    startLedEvent(LED_EVENT_WAKE);
   }
 }
 
@@ -691,6 +788,7 @@ void setup() {
   pinMode(ROW_ANALOG_PIN, INPUT);
   pinMode(SERVO_SENSE_PIN, INPUT);
   buzzerInit();
+  initLeds();
 
   if (loadPw())
     Serial.println("Loaded password from EEPROM.");
@@ -709,6 +807,7 @@ void setup() {
 
   setupTimer1();
   markActivity();
+  runLeds();
 }
 
 void loop() {
@@ -716,6 +815,7 @@ void loop() {
 
   maybeCheckBattery();
   serviceBuzzer();
+  runLeds();
 
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) {
     return;
@@ -759,6 +859,7 @@ void loop() {
           clearEntered();
           unlockHashCount = 0;
           lockedHashCount = 0;
+          startLedEvent(LED_EVENT_SAVED);
         }
         return;
       }
@@ -834,6 +935,7 @@ void loop() {
       } else {
         clearEntered();
         Serial.println("WRONG PASSWORD");
+        startLedEvent(LED_EVENT_WRONG);
       }
       return;
     }
@@ -870,6 +972,7 @@ void loop() {
         pwLen = L;
         savePw(pw, pwLen);
         Serial.println("Password saved.");
+        startLedEvent(LED_EVENT_SAVED);
       }
       else if (c == 'T' && line[1] == ' ') {
         const char* p = line + 2;
