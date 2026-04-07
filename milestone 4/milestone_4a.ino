@@ -29,21 +29,17 @@
     Tune RAIL_WARN_MV / RAIL_CRIT_MV for your regulator and load (defaults ~4.7 V /
     4.4 V). Serial: B for one-shot rail reading.
 
-  Buzzer (power alerts) — digital pin 5 (D5, ATmega328P physical pin 11):
-    Passive piezo (2 pins), one side to GND:
-              +5V ----[ 100 Ω ]----+---- D5
-                                    |
-                              [ piezo element ]
-                                    |
-                                   GND
-      Uses tone() ~2 kHz (Timer2 on ATmega328; servo stays on Timer1).
+  Buzzer (power alerts) — passive piezo buzzer, digital D5 (ATmega328P pin 11 PD5):
+    Wiring (copy for report / breadboard):
 
-    Active buzzer module (3 pins: VCC, GND, I/O):
-              VCC ---- +5V
-              GND ---- GND
-              I/O ---- D5
-      If tone() is weak or silent, change buzzerPlayTone() to digitalWrite HIGH/LOW
-      with the same on/off timing (see comment in code).
+         Arduino GND ---------------------------+---  buzzer pin (-)
+                                              |
+         Arduino D5 ---[ 100 Ω ]---+---  buzzer pin (+)
+                                  |
+                     (series resistor limits current; 100–220 Ω typical)
+
+    Polarity on a 2-pin passive buzzer usually does not matter.
+    Code uses tone(BUZZER_PIN, 2000) → Timer2 on ATmega328; servo uses Timer1.
 */
 
 #include <Arduino.h>
