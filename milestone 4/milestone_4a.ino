@@ -28,6 +28,22 @@
     current is negligible (brief ADC conversions only).
     Tune RAIL_WARN_MV / RAIL_CRIT_MV for your regulator and load (defaults ~4.7 V /
     4.4 V). Serial: B for one-shot rail reading.
+
+  Buzzer (power alerts) — digital pin 5 (D5, ATmega328P physical pin 11):
+    Passive piezo (2 pins), one side to GND:
+              +5V ----[ 100 Ω ]----+---- D5
+                                    |
+                              [ piezo element ]
+                                    |
+                                   GND
+      Uses tone() ~2 kHz (Timer2 on ATmega328; servo stays on Timer1).
+
+    Active buzzer module (3 pins: VCC, GND, I/O):
+              VCC ---- +5V
+              GND ---- GND
+              I/O ---- D5
+      If tone() is weak or silent, change buzzerPlayTone() to digitalWrite HIGH/LOW
+      with the same on/off timing (see comment in code).
 */
 
 #include <Arduino.h>
@@ -38,6 +54,16 @@
 const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
 const uint8_t SERVO_SENSE_PIN = A1;
+const uint8_t BUZZER_PIN      = 5;
+
+static const uint16_t BUZZER_HZ = 2000;
+
+static const uint16_t BUZZ_WARN_ON_MS  = 80;
+static const uint16_t BUZZ_WARN_GAP_MS = 120;
+static const uint8_t  BUZZ_WARN_COUNT  = 5;
+
+static const uint16_t BUZZ_CRIT_ON_MS  = 45;
+static const uint16_t BUZZ_CRIT_GAP_MS = 55;
 
 static const uint16_t RAIL_WARN_MV = 4700;
 static const uint16_t RAIL_CRIT_MV = 4400;
@@ -50,6 +76,101 @@ static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
 static uint8_t  railBelowWarnStreak = 0;
 static uint8_t  railLevel = 0;
+
+static bool     buzzerWarnBurstPending = false;
+
+enum BuzzerMode : uint8_t { BUZZ_IDLE = 0, BUZZ_WARN_FIVE, BUZZ_CRIT_FAST };
+static BuzzerMode buzzerMode = BUZZ_IDLE;
+static uint32_t   buzzerNextMs = 0;
+static uint8_t    buzzerBeepDone = 0;
+static bool       buzzerToneOn = false;
+
+static void buzzerPlayTone() {
+  tone(BUZZER_PIN, BUZZER_HZ);
+}
+
+static void buzzerStopTone() {
+  noTone(BUZZER_PIN);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+static void buzzerQueueWarnFiveBeeps() {
+  buzzerWarnBurstPending = true;
+}
+
+static void buzzerInit() {
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  buzzerStopTone();
+}
+
+static void serviceBuzzer() {
+  uint32_t now = millis();
+
+  if (railLevel == 0) {
+    buzzerMode = BUZZ_IDLE;
+    buzzerWarnBurstPending = false;
+    buzzerBeepDone = 0;
+    buzzerToneOn = false;
+    buzzerStopTone();
+    return;
+  }
+
+  if (railLevel >= 2) {
+    buzzerWarnBurstPending = false;
+    if (buzzerMode != BUZZ_CRIT_FAST) {
+      buzzerMode = BUZZ_CRIT_FAST;
+      buzzerToneOn = false;
+      buzzerNextMs = now;
+    }
+    if ((long)(now - buzzerNextMs) >= 0) {
+      if (!buzzerToneOn) {
+        buzzerPlayTone();
+        buzzerToneOn = true;
+        buzzerNextMs = now + BUZZ_CRIT_ON_MS;
+      } else {
+        buzzerStopTone();
+        buzzerToneOn = false;
+        buzzerNextMs = now + BUZZ_CRIT_GAP_MS;
+      }
+    }
+    return;
+  }
+
+  if (railLevel == 1) {
+    if (buzzerMode == BUZZ_CRIT_FAST) {
+      buzzerMode = BUZZ_IDLE;
+      buzzerToneOn = false;
+      buzzerStopTone();
+    }
+    if (buzzerWarnBurstPending && buzzerMode == BUZZ_IDLE) {
+      buzzerWarnBurstPending = false;
+      buzzerMode = BUZZ_WARN_FIVE;
+      buzzerBeepDone = 0;
+      buzzerToneOn = false;
+      buzzerNextMs = now;
+    }
+    if (buzzerMode != BUZZ_WARN_FIVE) {
+      return;
+    }
+    if (buzzerBeepDone >= BUZZ_WARN_COUNT && !buzzerToneOn) {
+      buzzerMode = BUZZ_IDLE;
+      return;
+    }
+    if ((long)(now - buzzerNextMs) >= 0) {
+      if (!buzzerToneOn) {
+        buzzerPlayTone();
+        buzzerToneOn = true;
+        buzzerNextMs = now + BUZZ_WARN_ON_MS;
+      } else {
+        buzzerStopTone();
+        buzzerToneOn = false;
+        buzzerBeepDone++;
+        buzzerNextMs = now + BUZZ_WARN_GAP_MS;
+      }
+    }
+  }
+}
 
 const char KEYMAP[4][3] = {
   {'1','2','3'},
@@ -242,6 +363,7 @@ static void maybeCheckBattery() {
     Serial.print("POWER LOW — ");
     printRailMilliVolts(rail);
     Serial.println("Replace battery or recharge soon.");
+    buzzerQueueWarnFiveBeeps();
   }
 }
 
@@ -535,6 +657,10 @@ static void enterSleepIfIdle() {
     sleepMessagePrinted = true;
   }
 
+  buzzerStopTone();
+  buzzerMode = BUZZ_IDLE;
+  buzzerToneOn = false;
+
   ADCSRA &= ~(1 << ADEN);
 
   cli();
@@ -561,6 +687,7 @@ void setup() {
   setAllColumnsHiZ();
   pinMode(ROW_ANALOG_PIN, INPUT);
   pinMode(SERVO_SENSE_PIN, INPUT);
+  buzzerInit();
 
   if (loadPw())
     Serial.println("Loaded password from EEPROM.");
@@ -578,6 +705,7 @@ void loop() {
   serviceServoMotion();
 
   maybeCheckBattery();
+  serviceBuzzer();
 
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) {
     return;
