@@ -1,5 +1,8 @@
+
+ 
+
 /*
-  Milestone 4 (milestone_4a.ino) — cloned from milestone_3_part_c.ino (Milestone 3c).
+  Milestone 4 (milestone_4b.ino) — based on your milestone_4a code.
 
   Wiring summary:
     Columns: C1->D2, C2->D3, C3->D4
@@ -17,29 +20,15 @@
     Sleep after inactivity
     Wake on keypad press using A0 pin-change interrupt + watchdog check
 
-  Milestone 4a — low-battery / weak-supply monitor (5 V rail, low average current):
-    System runs from a regulated ~5 V rail (AVcc). There is no separate high-voltage
-    ADC tap in this design.
-    Detection: the ATmega328P internal 1.1 V bandgap is measured against AVcc so we
-    infer the actual 5 V rail voltage in millivolts. While the regulator holds
-    nominal 5 V, AVcc stays high; as the upstream battery weakens, the LDO can no
-    longer maintain regulation and AVcc sags — that is when we warn (before brownout).
-    Checks run only every RAIL_CHECK_INTERVAL_MS (not continuously), so average extra
-    current is negligible (brief ADC conversions only).
-    Tune RAIL_WARN_MV / RAIL_CRIT_MV for your regulator and load (defaults ~4.7 V /
-    4.4 V). Serial: B for one-shot rail reading.
+  Milestone 4a:
+    Low-battery / weak-supply monitor on the 5 V rail
+    Passive buzzer on D5 for battery alerts
 
-  Buzzer (power alerts) — passive piezo buzzer, digital D5 (ATmega328P pin 11 PD5):
-    Wiring (copy for report / breadboard):
-
-         Arduino GND ---------------------------+---  buzzer pin (-)
-                                              |
-         Arduino D5 ---[ 100 Ω ]---+---  buzzer pin (+)
-                                  |
-                     (series resistor limits current; 100–220 Ω typical)
-
-    Polarity on a 2-pin passive buzzer usually does not matter.
-    Code uses tone(BUZZER_PIN, 2000) → Timer2 on ATmega328; servo uses Timer1.
+  Milestone 4b:
+    LED user interface
+      D6 -> red LED
+      D7 -> green LED
+      D8 -> yellow LED
 */
 
 #include <Arduino.h>
@@ -51,9 +40,10 @@ const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
 const uint8_t SERVO_SENSE_PIN = A1;
 const uint8_t BUZZER_PIN      = 5;
-const uint8_t redPin          = 6;
-const uint8_t greenPin        = 7;
-const uint8_t yellowPin       = 8;
+
+const uint8_t redPin = 6;
+const uint8_t greenPin = 7;
+const uint8_t yellowPin = 8;
 
 static const uint16_t BUZZER_HZ = 2000;
 
@@ -73,110 +63,21 @@ static const uint8_t       RAIL_CONSEC_BELOW_WARN = 2;
 
 static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
-static uint8_t  railBelowWarnStreak = 0;
-static uint8_t  railLevel = 0;
+static uint8_t railBelowWarnStreak = 0;
+static uint8_t railLevel = 0;
 
-static bool     buzzerWarnBurstPending = false;
+static bool buzzerWarnBurstPending = false;
 
-enum BuzzerMode : uint8_t { BUZZ_IDLE = 0, BUZZ_WARN_FIVE, BUZZ_CRIT_FAST };
+enum BuzzerMode {
+  BUZZ_IDLE = 0,
+  BUZZ_WARN_FIVE = 1,
+  BUZZ_CRIT_FAST = 2
+};
+
 static BuzzerMode buzzerMode = BUZZ_IDLE;
-static uint32_t   buzzerNextMs = 0;
-static uint8_t    buzzerBeepDone = 0;
-static bool       buzzerToneOn = false;
-
-static void buzzerPlayTone() {
-  tone(BUZZER_PIN, BUZZER_HZ);
-}
-
-static void buzzerStopTone() {
-  noTone(BUZZER_PIN);
-  digitalWrite(BUZZER_PIN, LOW);
-}
-
-static void buzzerQueueWarnFiveBeeps() {
-  buzzerWarnBurstPending = true;
-}
-
-static void buzzerInit() {
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-  buzzerStopTone();
-}
-
-static void buzzerBeepOnce() {
-  // Simple manual test beep from serial command.
-  tone(BUZZER_PIN, BUZZER_HZ);
-  delay(120);
-  buzzerStopTone();
-}
-
-static void serviceBuzzer() {
-  uint32_t now = millis();
-
-  if (railLevel == 0) {
-    buzzerMode = BUZZ_IDLE;
-    buzzerWarnBurstPending = false;
-    buzzerBeepDone = 0;
-    buzzerToneOn = false;
-    buzzerStopTone();
-    return;
-  }
-
-  if (railLevel >= 2) {
-    buzzerWarnBurstPending = false;
-    if (buzzerMode != BUZZ_CRIT_FAST) {
-      buzzerMode = BUZZ_CRIT_FAST;
-      buzzerToneOn = false;
-      buzzerNextMs = now;
-    }
-    if ((long)(now - buzzerNextMs) >= 0) {
-      if (!buzzerToneOn) {
-        buzzerPlayTone();
-        buzzerToneOn = true;
-        buzzerNextMs = now + BUZZ_CRIT_ON_MS;
-      } else {
-        buzzerStopTone();
-        buzzerToneOn = false;
-        buzzerNextMs = now + BUZZ_CRIT_GAP_MS;
-      }
-    }
-    return;
-  }
-
-  if (railLevel == 1) {
-    if (buzzerMode == BUZZ_CRIT_FAST) {
-      buzzerMode = BUZZ_IDLE;
-      buzzerToneOn = false;
-      buzzerStopTone();
-    }
-    if (buzzerWarnBurstPending && buzzerMode == BUZZ_IDLE) {
-      buzzerWarnBurstPending = false;
-      buzzerMode = BUZZ_WARN_FIVE;
-      buzzerBeepDone = 0;
-      buzzerToneOn = false;
-      buzzerNextMs = now;
-    }
-    if (buzzerMode != BUZZ_WARN_FIVE) {
-      return;
-    }
-    if (buzzerBeepDone >= BUZZ_WARN_COUNT && !buzzerToneOn) {
-      buzzerMode = BUZZ_IDLE;
-      return;
-    }
-    if ((long)(now - buzzerNextMs) >= 0) {
-      if (!buzzerToneOn) {
-        buzzerPlayTone();
-        buzzerToneOn = true;
-        buzzerNextMs = now + BUZZ_WARN_ON_MS;
-      } else {
-        buzzerStopTone();
-        buzzerToneOn = false;
-        buzzerBeepDone++;
-        buzzerNextMs = now + BUZZ_WARN_GAP_MS;
-      }
-    }
-  }
-}
+static uint32_t buzzerNextMs = 0;
+static uint8_t buzzerBeepDone = 0;
+static bool buzzerToneOn = false;
 
 const char KEYMAP[4][3] = {
   {'1','2','3'},
@@ -194,9 +95,9 @@ const uint8_t DEBOUNCE_SCANS = 5;
 const uint8_t RELEASE_SCANS  = 5;
 
 static const uint16_t base = 0;
-static const uint8_t  M0 = 'A';
-static const uint8_t  M1 = 'B';
-static const uint8_t  maxLength = 8;
+static const uint8_t M0 = 'A';
+static const uint8_t M1 = 'B';
+static const uint8_t maxLength = 8;
 
 static uint8_t pw[maxLength];
 static uint8_t pwLen = 0;
@@ -239,8 +140,7 @@ static const uint16_t MOVE_GRACE_MS       = 250;
 static const uint16_t BLOCK_CONFIRM_MS    = 80;
 static const uint16_t MOVE_TIMEOUT_MS     = 700;
 
-// Change this for demo if needed
-static const unsigned long IDLE_SLEEP_MS  = 15000;
+static const unsigned long IDLE_SLEEP_MS = 15000;
 
 static uint32_t motionStartTime = 0;
 static uint32_t blockHighStartTime = 0;
@@ -250,9 +150,12 @@ volatile bool wokeFromKeypad = false;
 volatile bool wokeFromWDT = false;
 
 static bool sleepMessagePrinted = false;
+
 static LedEvent ledEvent = LED_EVENT_NONE;
 static uint32_t ledEventStart = 0;
 static bool ledsSleeping = false;
+
+static bool match(const char* s);
 
 static void spamStatus(const char *msg) {
   Serial.println(msg);
@@ -264,14 +167,17 @@ static void markActivity() {
 }
 
 static void clearEntered() {
-  for (uint8_t i = 0; i < 5; i++) enteredPassword[i] = 0;
+  for (uint8_t i = 0; i < 5; i++) {
+    enteredPassword[i] = 0;
+  }
   enteredLen = 0;
 }
 
-static bool match(const char* s);
-
 static bool passwordMatches() {
-  if (pwLen != 4) return false;
+  if (pwLen != 4) {
+    return false;
+  }
+
   enteredPassword[4] = 0;
   return match(enteredPassword);
 }
@@ -289,9 +195,18 @@ static void initLeds() {
   setLeds(false, false, false);
 }
 
-static void startLedEvent(LedEvent eventValue) {
-  ledEvent = eventValue;
+static void startLedEvent(uint8_t eventValue) {
+  ledEvent = (LedEvent)eventValue;
   ledEventStart = millis();
+}
+
+static void enterSavePasswordMode(uint8_t returnState) {
+  saveReturnState = (LockState)returnState;
+  lockState = STATE_SAVE_PASSWORD;
+  unlockHashCount = 0;
+  lockedHashCount = 0;
+  clearEntered();
+  Serial.println("SAVE MODE: enter new 4-digit password, then #");
 }
 
 static void runLeds() {
@@ -312,28 +227,32 @@ static void runLeds() {
         return;
       }
       ledEvent = LED_EVENT_NONE;
-    } else if (ledEvent == LED_EVENT_BLOCKED) {
+    }
+    else if (ledEvent == LED_EVENT_BLOCKED) {
       if (dt < 1000) {
         bool on = ((dt / 120) % 2) == 0;
         setLeds(on, false, on);
         return;
       }
       ledEvent = LED_EVENT_NONE;
-    } else if (ledEvent == LED_EVENT_SAVED) {
+    }
+    else if (ledEvent == LED_EVENT_SAVED) {
       if (dt < 900) {
         bool yellowOn = ((dt / 150) % 2) == 0;
         setLeds(false, false, yellowOn);
         return;
       }
       ledEvent = LED_EVENT_NONE;
-    } else if (ledEvent == LED_EVENT_WAKE) {
+    }
+    else if (ledEvent == LED_EVENT_WAKE) {
       if (dt < 500) {
         bool greenOn = ((dt / 125) % 2) == 0;
         setLeds(false, greenOn, false);
         return;
       }
       ledEvent = LED_EVENT_NONE;
-    } else {
+    }
+    else {
       ledEvent = LED_EVENT_NONE;
     }
   }
@@ -352,6 +271,105 @@ static void runLeds() {
   setLeds(true, false, false);
 }
 
+static void buzzerPlayTone() {
+  tone(BUZZER_PIN, BUZZER_HZ);
+}
+
+static void buzzerStopTone() {
+  noTone(BUZZER_PIN);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+static void buzzerQueueWarnFiveBeeps() {
+  buzzerWarnBurstPending = true;
+}
+
+static void buzzerInit() {
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  buzzerStopTone();
+}
+
+static void buzzerBeepOnce() {
+  tone(BUZZER_PIN, BUZZER_HZ);
+  delay(120);
+  buzzerStopTone();
+}
+
+static void serviceBuzzer() {
+  uint32_t now = millis();
+
+  if (railLevel == 0) {
+    buzzerMode = BUZZ_IDLE;
+    buzzerWarnBurstPending = false;
+    buzzerBeepDone = 0;
+    buzzerToneOn = false;
+    buzzerStopTone();
+    return;
+  }
+
+  if (railLevel >= 2) {
+    buzzerWarnBurstPending = false;
+
+    if (buzzerMode != BUZZ_CRIT_FAST) {
+      buzzerMode = BUZZ_CRIT_FAST;
+      buzzerToneOn = false;
+      buzzerNextMs = now;
+    }
+
+    if ((long)(now - buzzerNextMs) >= 0) {
+      if (!buzzerToneOn) {
+        buzzerPlayTone();
+        buzzerToneOn = true;
+        buzzerNextMs = now + BUZZ_CRIT_ON_MS;
+      } else {
+        buzzerStopTone();
+        buzzerToneOn = false;
+        buzzerNextMs = now + BUZZ_CRIT_GAP_MS;
+      }
+    }
+    return;
+  }
+
+  if (railLevel == 1) {
+    if (buzzerMode == BUZZ_CRIT_FAST) {
+      buzzerMode = BUZZ_IDLE;
+      buzzerToneOn = false;
+      buzzerStopTone();
+    }
+
+    if (buzzerWarnBurstPending && buzzerMode == BUZZ_IDLE) {
+      buzzerWarnBurstPending = false;
+      buzzerMode = BUZZ_WARN_FIVE;
+      buzzerBeepDone = 0;
+      buzzerToneOn = false;
+      buzzerNextMs = now;
+    }
+
+    if (buzzerMode != BUZZ_WARN_FIVE) {
+      return;
+    }
+
+    if (buzzerBeepDone >= BUZZ_WARN_COUNT && !buzzerToneOn) {
+      buzzerMode = BUZZ_IDLE;
+      return;
+    }
+
+    if ((long)(now - buzzerNextMs) >= 0) {
+      if (!buzzerToneOn) {
+        buzzerPlayTone();
+        buzzerToneOn = true;
+        buzzerNextMs = now + BUZZ_WARN_ON_MS;
+      } else {
+        buzzerStopTone();
+        buzzerToneOn = false;
+        buzzerBeepDone++;
+        buzzerNextMs = now + BUZZ_WARN_GAP_MS;
+      }
+    }
+  }
+}
+
 static void setAllColumnsHiZ() {
   for (uint8_t i = 0; i < 3; i++) {
     pinMode(COL_PINS[i], INPUT);
@@ -368,17 +386,21 @@ static void setAllColumnsLowForWake() {
 
 static int readAnalogAveraged(uint8_t samples) {
   long sum = 0;
+
   for (uint8_t i = 0; i < samples; i++) {
     sum += analogRead(ROW_ANALOG_PIN);
   }
+
   return (int)(sum / samples);
 }
 
 static int readServoSenseAveraged(uint8_t samples) {
   long sum = 0;
+
   for (uint8_t i = 0; i < samples; i++) {
     sum += analogRead(SERVO_SENSE_PIN);
   }
+
   return (int)(sum / samples);
 }
 
@@ -386,22 +408,29 @@ static uint16_t readAvccMilliVolts() {
   ADMUX = (uint8_t)(_BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1));
   delayMicroseconds(200);
   ADCSRA |= _BV(ADSC);
-  while (ADCSRA & _BV(ADSC)) { }
-  uint8_t low  = ADCL;
+
+  while (ADCSRA & _BV(ADSC)) {
+  }
+
+  uint8_t low = ADCL;
   uint8_t high = ADCH;
   uint32_t adc = ((uint32_t)high << 8) | low;
+
   if (adc == 0) {
     return 5000;
   }
+
   return (uint16_t)(1125300UL / adc);
 }
 
 static uint16_t readFiveVRailMilliVoltsAveraged() {
   uint32_t sum = 0;
+
   for (uint8_t i = 0; i < 4; i++) {
     sum += readAvccMilliVolts();
     delayMicroseconds(80);
   }
+
   return (uint16_t)(sum / 4);
 }
 
@@ -415,15 +444,18 @@ static void printRailMilliVolts(uint16_t rail_mv) {
 
 static void maybeCheckBattery() {
   unsigned long now = millis();
+
   if ((unsigned long)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS) {
     return;
   }
+
   lastRailCheckMs = now;
 
   uint16_t rail = readFiveVRailMilliVoltsAveraged();
 
   if (rail >= RAIL_WARN_MV) {
     railBelowWarnStreak = 0;
+
     if (railLevel != 0) {
       Serial.println("Supply OK (5 V rail above warning threshold).");
       railLevel = 0;
@@ -434,26 +466,32 @@ static void maybeCheckBattery() {
   if (railBelowWarnStreak < 255) {
     railBelowWarnStreak++;
   }
+
   if (railBelowWarnStreak < RAIL_CONSEC_BELOW_WARN) {
     return;
   }
 
-  uint8_t newLevel = (rail < RAIL_CRIT_MV) ? 2u : 1u;
-  bool escalate = (newLevel > railLevel);
+  uint8_t newLevel = 1;
+  if (rail < RAIL_CRIT_MV) {
+    newLevel = 2;
+  }
+
+  bool escalate = newLevel > railLevel;
   railLevel = newLevel;
 
   if (!escalate && (unsigned long)(now - lastRailAlertMs) < RAIL_ALERT_REPEAT_MS) {
     return;
   }
+
   lastRailAlertMs = now;
 
   Serial.print("ALERT: ");
   if (railLevel >= 2) {
-    Serial.print("POWER CRITICAL — ");
+    Serial.print("POWER CRITICAL - ");
     printRailMilliVolts(rail);
     Serial.println("Battery/source too weak; replace before lockout.");
   } else {
-    Serial.print("POWER LOW — ");
+    Serial.print("POWER LOW - ");
     printRailMilliVolts(rail);
     Serial.println("Replace battery or recharge soon.");
     buzzerQueueWarnFiveBeeps();
@@ -463,12 +501,13 @@ static void maybeCheckBattery() {
 static void batteryStatusOnDemand() {
   uint16_t rail = readFiveVRailMilliVoltsAveraged();
   printRailMilliVolts(rail);
+
   if (rail < RAIL_CRIT_MV) {
     Serial.println("(below critical threshold)");
   } else if (rail < RAIL_WARN_MV) {
     Serial.println("(below warning threshold)");
   } else {
-    Serial.println("(nominal 5 V rail — OK)");
+    Serial.println("(nominal 5 V rail - OK)");
   }
 }
 
@@ -489,10 +528,12 @@ static char scanKeyRaw() {
 
     int adc = readAnalogAveraged(4);
     int row = adcToRow(adc);
+
     if (row >= 0) {
       return KEYMAP[row][col];
     }
   }
+
   return 0;
 }
 
@@ -506,7 +547,10 @@ static char getKeyEvent() {
 
   if (waitingForRelease) {
     if (raw == 0) {
-      if (releaseCount < 255) releaseCount++;
+      if (releaseCount < 255) {
+        releaseCount++;
+      }
+
       if (releaseCount >= RELEASE_SCANS) {
         waitingForRelease = false;
         candidate = 0;
@@ -526,7 +570,9 @@ static char getKeyEvent() {
   }
 
   if (raw == candidate) {
-    if (stableCount < 255) stableCount++;
+    if (stableCount < 255) {
+      stableCount++;
+    }
   } else {
     candidate = raw;
     stableCount = 1;
@@ -542,29 +588,41 @@ static char getKeyEvent() {
 }
 
 static uint8_t eeRead(uint16_t a) {
-  while (EECR & (1 << EEPE)) { }
+  while (EECR & (1 << EEPE)) {
+  }
+
   EEAR = a;
   EECR |= (1 << EERE);
   return EEDR;
 }
 
 static void eeWrite(uint16_t a, uint8_t v) {
-  while (EECR & (1 << EEPE)) { }
+  while (EECR & (1 << EEPE)) {
+  }
+
   uint8_t s = SREG;
   cli();
+
   EEAR = a;
   EEDR = v;
   EECR |= (1 << EEMPE);
   EECR |= (1 << EEPE);
+
   SREG = s;
 }
 
 static void savePw(const uint8_t* p, uint8_t n) {
-  if (n > maxLength) n = maxLength;
+  if (n > maxLength) {
+    n = maxLength;
+  }
+
   eeWrite(base + 0, M0);
   eeWrite(base + 1, M1);
   eeWrite(base + 2, n);
-  for (uint8_t i = 0; i < n; i++) eeWrite(base + 3 + i, p[i]);
+
+  for (uint8_t i = 0; i < n; i++) {
+    eeWrite(base + 3 + i, p[i]);
+  }
 }
 
 static bool loadPw() {
@@ -577,17 +635,24 @@ static bool loadPw() {
   for (uint8_t i = 0; i < n; i++) {
     pw[i] = eeRead(base + 3 + i);
   }
+
   pwLen = n;
   return true;
 }
 
 static bool match(const char* s) {
   uint8_t n = (uint8_t)strlen(s);
-  if (n != pwLen) return false;
+
+  if (n != pwLen) {
+    return false;
+  }
 
   for (uint8_t i = 0; i < n; i++) {
-    if ((uint8_t)s[i] != pw[i]) return false;
+    if ((uint8_t)s[i] != pw[i]) {
+      return false;
+    }
   }
+
   return true;
 }
 
@@ -613,12 +678,12 @@ static void setupTimer1() {
   setServoPulse(RESET);
 }
 
-static void startServoMotion(LockState prevState, LockState nextState, LockState motionState, uint16_t pulse) {
-  motionPrevState = prevState;
-  motionNextState = nextState;
+static void startServoMotion(uint8_t prevState, uint8_t nextState, uint8_t motionState, uint16_t pulse) {
+  motionPrevState = (LockState)prevState;
+  motionNextState = (LockState)nextState;
   motionStartTime = millis();
   blockHighStartTime = 0;
-  lockState = motionState;
+  lockState = (LockState)motionState;
   setServoPulse(pulse);
   markActivity();
 }
@@ -688,14 +753,14 @@ ISR(WDT_vect) {
 }
 
 static void enableWakeOnA0() {
-  PCIFR  |= (1 << PCIF1);
-  PCICR  |= (1 << PCIE1);
+  PCIFR |= (1 << PCIF1);
+  PCICR |= (1 << PCIE1);
   PCMSK1 |= (1 << PCINT8);
 }
 
 static void disableWakeOnA0() {
   PCMSK1 &= ~(1 << PCINT8);
-  PCICR  &= ~(1 << PCIE1);
+  PCICR &= ~(1 << PCIE1);
 }
 
 static void enableWatchdogWake() {
@@ -703,7 +768,7 @@ static void enableWatchdogWake() {
 
   cli();
   WDTCSR = (1 << WDCE) | (1 << WDE);
-  WDTCSR = (1 << WDIE) | (1 << WDP1);   // ~64 ms interrupt only
+  WDTCSR = (1 << WDIE) | (1 << WDP1);
   sei();
 }
 
@@ -718,8 +783,8 @@ static void disableWatchdogWake() {
 
 static inline void enterPowerDownSleepRaw() {
   SMCR = 0;
-  SMCR |= (1 << SM1);   // Power-down mode
-  SMCR |= (1 << SE);    // Sleep enable
+  SMCR |= (1 << SM1);
+  SMCR |= (1 << SE);
   sei();
   asm volatile("sleep" ::: "memory");
   SMCR &= ~(1 << SE);
@@ -787,13 +852,15 @@ void setup() {
   setAllColumnsHiZ();
   pinMode(ROW_ANALOG_PIN, INPUT);
   pinMode(SERVO_SENSE_PIN, INPUT);
+
   buzzerInit();
   initLeds();
 
-  if (loadPw())
+  if (loadPw()) {
     Serial.println("Loaded password from EEPROM.");
-  else
+  } else {
     Serial.println("No password found in EEPROM.");
+  }
 
   Serial.println("Commands:");
   Serial.println("  S <code> : save password");
@@ -860,6 +927,8 @@ void loop() {
           unlockHashCount = 0;
           lockedHashCount = 0;
           startLedEvent(LED_EVENT_SAVED);
+        } else {
+          Serial.println("SAVE MODE: enter 4 digits, then #");
         }
         return;
       }
@@ -885,11 +954,7 @@ void loop() {
       if (key == '#') {
         unlockHashCount++;
         if (unlockHashCount >= 5) {
-          saveReturnState = STATE_UNLOCKED;
-          lockState = STATE_SAVE_PASSWORD;
-          unlockHashCount = 0;
-          clearEntered();
-          Serial.println("Enter new 4-digit password, then #");
+          enterSavePasswordMode(STATE_UNLOCKED);
         }
       } else {
         unlockHashCount = 0;
@@ -908,20 +973,27 @@ void loop() {
 
     if (key == '#') {
       if (enteredLen == 0) {
-        if (lockedHashCount < 255) lockedHashCount++;
+        if (lockedHashCount < 255) {
+          lockedHashCount++;
+        }
+
         if (lockedHashCount >= 5) {
-          saveReturnState = STATE_LOCKED;
-          lockState = STATE_SAVE_PASSWORD;
-          unlockHashCount = 0;
-          lockedHashCount = 0;
-          clearEntered();
-          Serial.println("Enter new 4-digit password, then #");
+          enterSavePasswordMode(STATE_LOCKED);
         }
         return;
       }
 
       if (enteredLen != 4) {
-        lockedHashCount = 0;
+        // Recover from partial/ghost numeric entry (e.g., wake noise on keypad):
+        // clear partial code and treat this '#' as part of the "#####"
+        // save-password trigger sequence.
+        clearEntered();
+        if (lockedHashCount < 255) {
+          lockedHashCount++;
+        }
+        if (lockedHashCount >= 5) {
+          enterSavePasswordMode(STATE_LOCKED);
+        }
         return;
       }
 
@@ -954,8 +1026,9 @@ void loop() {
       size_t n = Serial.readBytesUntil('\n', line + 1, sizeof(line) - 2);
       line[n + 1] = 0;
 
-      if (n && line[n] == '\r')
+      if (n && line[n] == '\r') {
         line[n] = 0;
+      }
 
       if (c == 'S' && line[1] == ' ') {
         const char* p = line + 2;
@@ -969,6 +1042,7 @@ void loop() {
         for (uint8_t i = 0; i < L; i++) {
           pw[i] = (uint8_t)p[i];
         }
+
         pwLen = L;
         savePw(pw, pwLen);
         Serial.println("Password saved.");

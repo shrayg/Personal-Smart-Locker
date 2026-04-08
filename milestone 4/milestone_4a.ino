@@ -523,12 +523,12 @@ static void setupTimer1() {
   setServoPulse(RESET);
 }
 
-static void startServoMotion(LockState prevState, LockState nextState, LockState motionState, uint16_t pulse) {
-  motionPrevState = prevState;
-  motionNextState = nextState;
+static void startServoMotion(uint8_t prevState, uint8_t nextState, uint8_t motionState, uint16_t pulse) {
+  motionPrevState = (LockState)prevState;
+  motionNextState = (LockState)nextState;
   motionStartTime = millis();
   blockHighStartTime = 0;
-  lockState = motionState;
+  lockState = (LockState)motionState;
   setServoPulse(pulse);
   markActivity();
 }
