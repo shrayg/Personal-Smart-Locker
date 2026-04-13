@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1080" font-family="Consolas, monospace" font-size="12">
+  <style>
+    .title { font-size:18px; font-weight:bold; fill:#1a1a1a; }
+    .subtitle { font-size:13px; fill:#444; }
+    .chip { fill:#e8e8e8; stroke:#333; stroke-width:1.5; }
+    .chip-label { font-size:14px; font-weight:bold; fill:#222; text-anchor:middle; }
+    .pin-left { text-anchor:end; }
+    .pin-right { text-anchor:start; }
+    .wire-pwr { stroke:#cc2222; stroke-width:1.8; fill:none; }
+    .wire-gnd { stroke:#222; stroke-width:1.8; fill:none; }
+    .wire-sig { stroke:#2255aa; stroke-width:1.6; fill:none; }
+    .comp { fill:#fff; stroke:#333; stroke-width:1.2; }
+    .comp-label { font-size:11px; fill:#333; text-anchor:middle; }
+    .comp-val { font-size:10px; fill:#666; text-anchor:middle; }
+    .section-label { font-size:14px; font-weight:bold; fill:#884400; }
+    .pwr-label { font-size:11px; fill:#cc2222; font-weight:bold; }
+    .gnd-label { font-size:11px; fill:#222; font-weight:bold; }
+    .note { font-size:10px; fill:#666; }
+    .node { fill:#2255aa; }
+    .junction { fill:#111; }
+  </style>
+
+  <rect width="1400" height="1080" fill="#fafafa"/>
+
+  <text x="700" y="30" class="title" text-anchor="middle">Personal Smart Locker - Full Wiring Diagram (Milestone 4a)</text>
+  <text x="700" y="48" class="subtitle" text-anchor="middle">ATmega328P standalone | keypad ladder | servo current sense | passive buzzer</text>
+
+  <!-- buses -->
+  <line x1="250" y1="108" x2="1360" y2="108" class="wire-pwr" stroke-dasharray="6,3"/>
+  <text x="255" y="102" class="pwr-label">+5V rail</text>
+  <line x1="30" y1="960" x2="1370" y2="960" class="wire-gnd" stroke-dasharray="6,3"/>
+  <text x="35" y="952" class="gnd-label">GND bus</text>
+
+  <!-- Power -->
+  <text x="36" y="82" class="section-label">Power Supply</text>
+  <rect x="28" y="96" width="86" height="40" class="comp" rx="4"/>
+  <text x="71" y="113" class="comp-label">V2</text>
+  <text x="71" y="128" class="comp-val">9-12V</text>
+
+  <rect x="164" y="88" width="116" height="56" class="comp" rx="4" fill="#e0ffe0"/>
+  <text x="222" y="108" class="comp-label">MCP1702</text>
+  <text x="222" y="124" class="comp-val">Vin   GND   Vout</text>
+  <text x="222" y="138" class="comp-val">5V LDO</text>
+
+  <!-- Battery +/-, MCP GND -->
+  <line x1="114" y1="108" x2="164" y2="108" class="wire-pwr"/>
+  <line x1="71" y1="136" x2="71" y2="180" class="wire-gnd"/>
+  <line x1="71" y1="180" x2="222" y2="180" class="wire-gnd"/>
+  <line x1="222" y1="144" x2="222" y2="180" class="wire-gnd"/>
+  <line x1="222" y1="180" x2="222" y2="960" class="wire-gnd"/>
+
+  <!-- C2 input cap to GND -->
+  <line x1="150" y1="108" x2="150" y2="124" class="wire-sig"/>
+  <rect x="140" y="124" width="20" height="12" class="comp" rx="2"/>
+  <text x="150" y="133" class="comp-val" font-size="8">1uF</text>
+  <text x="169" y="133" class="comp-val">C2</text>
+  <line x1="150" y1="136" x2="150" y2="180" class="wire-gnd"/>
+  <circle cx="150" cy="180" r="2.5" class="junction"/>
+
+  <!-- C1 output cap to GND -->
+  <line x1="280" y1="108" x2="300" y2="108" class="wire-pwr"/>
+  <line x1="290" y1="108" x2="290" y2="124" class="wire-sig"/>
+  <rect x="280" y="124" width="20" height="12" class="comp" rx="2"/>
+  <text x="290" y="133" class="comp-val" font-size="8">1uF</text>
+  <text x="309" y="133" class="comp-val">C1</text>
+  <line x1="290" y1="136" x2="290" y2="180" class="wire-gnd"/>
+  <circle cx="290" cy="180" r="2.5" class="junction"/>
+  <line x1="290" y1="180" x2="222" y2="180" class="wire-gnd"/>
+  <line x1="300" y1="108" x2="300" y2="108" class="wire-pwr"/>
+
+  <!-- MCU -->
+  <text x="560" y="236" class="section-label">ATmega328P (DIP-28)</text>
+  <rect x="520" y="255" width="230" height="410" class="chip" rx="8"/>
+  <text x="635" y="286" class="chip-label">ATmega328P</text>
+  <circle cx="635" cy="262" r="6" fill="none" stroke="#333"/>
+
+  <!-- Left pins -->
+  <line x1="480" y1="318" x2="520" y2="318" class="wire-sig"/><text x="474" y="322" class="pin-left">RESET</text>
+  <line x1="480" y1="338" x2="520" y2="338" class="wire-sig"/><text x="474" y="342" class="pin-left">RX D0</text>
+  <line x1="480" y1="358" x2="520" y2="358" class="wire-sig"/><text x="474" y="362" class="pin-left">TX D1</text>
+  <line x1="480" y1="378" x2="520" y2="378" class="wire-sig"/><text x="474" y="382" class="pin-left">D2</text>
+  <line x1="480" y1="398" x2="520" y2="398" class="wire-sig"/><text x="474" y="402" class="pin-left">D3</text>
+  <line x1="480" y1="418" x2="520" y2="418" class="wire-sig"/><text x="474" y="422" class="pin-left">D4</text>
+  <line x1="480" y1="438" x2="520" y2="438" class="wire-pwr"/><text x="474" y="442" class="pin-left pwr-label">VCC</text>
+  <line x1="480" y1="458" x2="520" y2="458" class="wire-gnd"/><text x="474" y="462" class="pin-left gnd-label">GND</text>
+  <line x1="480" y1="478" x2="520" y2="478" class="wire-sig"/><text x="474" y="482" class="pin-left">XTAL1</text>
+  <line x1="480" y1="498" x2="520" y2="498" class="wire-sig"/><text x="474" y="502" class="pin-left">XTAL2</text>
+  <line x1="480" y1="518" x2="520" y2="518" class="wire-sig"/><text x="474" y="522" class="pin-left">D5</text>
+
+  <!-- Right pins -->
+  <line x1="750" y1="398" x2="810" y2="398" class="wire-sig"/><text x="814" y="402" class="pin-right">A1</text>
+  <line x1="750" y1="418" x2="860" y2="418" class="wire-sig"/><text x="864" y="422" class="pin-right">A0</text>
+  <line x1="750" y1="438" x2="810" y2="438" class="wire-gnd"/><text x="814" y="442" class="pin-right gnd-label">GND</text>
+  <line x1="750" y1="478" x2="810" y2="478" class="wire-pwr"/><text x="814" y="482" class="pin-right pwr-label">AVCC</text>
+  <line x1="750" y1="578" x2="810" y2="578" class="wire-sig"/><text x="814" y="582" class="pin-right">D9</text>
+
+  <!-- VCC/AVCC to +5 rail -->
+  <line x1="440" y1="108" x2="440" y2="438" class="wire-pwr"/>
+  <line x1="440" y1="438" x2="480" y2="438" class="wire-pwr"/>
+  <line x1="900" y1="108" x2="900" y2="478" class="wire-pwr"/>
+  <line x1="810" y1="478" x2="900" y2="478" class="wire-pwr"/>
+
+  <!-- Grounds to GND bus -->
+  <line x1="450" y1="458" x2="480" y2="458" class="wire-gnd"/>
+  <line x1="450" y1="458" x2="450" y2="960" class="wire-gnd"/>
+  <line x1="810" y1="438" x2="810" y2="960" class="wire-gnd"/>
+
+  <!-- Reset pull-up -->
+  <text x="316" y="292" class="section-label">Reset</text>
+  <rect x="352" y="310" width="52" height="14" class="comp" rx="3"/>
+  <text x="378" y="320" class="comp-val">10k R6</text>
+  <line x1="404" y1="317" x2="480" y2="318" class="wire-sig"/>
+  <line x1="352" y1="317" x2="330" y2="317" class="wire-pwr"/>
+  <line x1="330" y1="317" x2="330" y2="108" class="wire-pwr"/>
+
+  <!-- Crystal section: explicit pin connections -->
+  <text x="120" y="464" class="section-label">Crystal</text>
+  <rect x="170" y="458" width="74" height="48" class="comp" rx="4" fill="#ffffdd"/>
+  <text x="207" y="486" class="comp-label">16 MHz</text>
+  <!-- crystal pins -->
+  <line x1="244" y1="474" x2="480" y2="478" class="wire-sig"/>
+  <line x1="244" y1="492" x2="480" y2="498" class="wire-sig"/>
+  <line x1="153" y1="474" x2="244" y2="474" class="wire-sig"/>
+  <line x1="153" y1="492" x2="244" y2="492" class="wire-sig"/>
+  <!-- load caps to GND -->
+  <rect x="138" y="443" width="30" height="12" class="comp" rx="2"/><text x="153" y="452" class="comp-val" font-size="8">22pF</text>
+  <line x1="153" y1="455" x2="153" y2="474" class="wire-sig"/>
+  <circle cx="153" cy="474" r="2.5" class="junction"/>
+  <line x1="153" y1="443" x2="153" y2="430" class="wire-gnd"/>
+  <line x1="153" y1="430" x2="120" y2="430" class="wire-gnd"/>
+  <circle cx="120" cy="430" r="2.5" class="junction"/>
+  <rect x="138" y="515" width="30" height="12" class="comp" rx="2"/><text x="153" y="524" class="comp-val" font-size="8">22pF</text>
+  <line x1="153" y1="515" x2="153" y2="492" class="wire-sig"/>
+  <circle cx="153" cy="492" r="2.5" class="junction"/>
+  <line x1="153" y1="527" x2="153" y2="544" class="wire-gnd"/>
+  <line x1="153" y1="544" x2="120" y2="544" class="wire-gnd"/>
+  <circle cx="120" cy="544" r="2.5" class="junction"/>
+  <line x1="120" y1="430" x2="120" y2="960" class="wire-gnd"/>
+
+  <!-- Keypad ladder -->
+  <text x="930" y="296" class="section-label">4x3 Keypad (resistor ladder)</text>
+  <rect x="1130" y="336" width="200" height="176" class="comp" rx="8" fill="#f0f0ff"/>
+  <text x="1230" y="364" class="comp-label">4x3 Keypad</text>
+  <text x="1230" y="382" class="comp-val">1-9, *, 0, #</text>
+  <text x="1142" y="410" class="pin-right">Row1</text>
+  <text x="1142" y="432" class="pin-right">Row2</text>
+  <text x="1142" y="454" class="pin-right">Row3</text>
+  <text x="1142" y="476" class="pin-right">Row4</text>
+  <text x="1170" y="500" class="pin-right">C1</text>
+  <text x="1220" y="500" class="pin-right">C2</text>
+  <text x="1270" y="500" class="pin-right">C3</text>
+
+  <!-- A0 node vertical bus -->
+  <line x1="990" y1="388" x2="990" y2="488" class="wire-sig" stroke-width="4"/>
+  <text x="1000" y="440" class="comp-label" fill="#2255aa">A0 node</text>
+  <!-- R5 pull-up explicitly connects to A0 node -->
+  <rect x="970" y="358" width="40" height="14" class="comp" rx="2"/>
+  <text x="990" y="368" class="comp-val">10k R5</text>
+  <line x1="990" y1="372" x2="990" y2="388" class="wire-sig"/>
+  <circle cx="990" cy="388" r="2.5" class="junction"/>
+  <line x1="990" y1="358" x2="990" y2="108" class="wire-pwr"/>
+  <line x1="860" y1="418" x2="990" y2="418" class="wire-sig"/>
+  <circle cx="990" cy="418" r="2.5" class="junction"/>
+
+  <!-- row resistors -->
+  <line x1="1130" y1="410" x2="1080" y2="410" class="wire-sig"/>
+  <rect x="1018" y="403" width="56" height="14" class="comp" rx="2"/><text x="1046" y="413" class="comp-val">1k R1</text>
+  <line x1="1018" y1="410" x2="990" y2="410" class="wire-sig"/>
+  <circle cx="990" cy="410" r="2.5" class="junction"/>
+
+  <line x1="1130" y1="432" x2="1080" y2="432" class="wire-sig"/>
+  <rect x="1018" y="425" width="56" height="14" class="comp" rx="2"/><text x="1046" y="435" class="comp-val">3.3k R2</text>
+  <line x1="1018" y1="432" x2="990" y2="432" class="wire-sig"/>
+  <circle cx="990" cy="432" r="2.5" class="junction"/>
+
+  <line x1="1130" y1="454" x2="1080" y2="454" class="wire-sig"/>
+  <rect x="1018" y="447" width="56" height="14" class="comp" rx="2"/><text x="1046" y="457" class="comp-val">8.2k R3</text>
+  <line x1="1018" y1="454" x2="990" y2="454" class="wire-sig"/>
+  <circle cx="990" cy="454" r="2.5" class="junction"/>
+
+  <line x1="1130" y1="476" x2="1080" y2="476" class="wire-sig"/>
+  <rect x="1018" y="469" width="56" height="14" class="comp" rx="2"/><text x="1046" y="479" class="comp-val">22k R4</text>
+  <line x1="1018" y1="476" x2="990" y2="476" class="wire-sig"/>
+  <circle cx="990" cy="476" r="2.5" class="junction"/>
+
+  <!-- column wires -->
+  <path d="M 480 378 L 300 378 L 300 760 L 1170 760 L 1170 500" class="wire-sig"/>
+  <path d="M 480 398 L 280 398 L 280 780 L 1220 780 L 1220 500" class="wire-sig"/>
+  <path d="M 480 418 L 260 418 L 260 800 L 1270 800 L 1270 500" class="wire-sig"/>
+
+  <!-- Servo -->
+  <text x="1010" y="146" class="section-label">Servo</text>
+  <rect x="1090" y="150" width="194" height="96" class="comp" rx="8" fill="#fff0f0"/>
+  <text x="1187" y="179" class="comp-label">Servo Motor</text>
+  <text x="1187" y="197" class="comp-val">lock / unlock</text>
+
+  <!-- servo +5 -->
+  <line x1="1090" y1="170" x2="1048" y2="170" class="wire-pwr"/>
+  <line x1="1048" y1="170" x2="1048" y2="108" class="wire-pwr"/>
+
+  <!-- servo signal -->
+  <path d="M 810 578 L 930 578 L 930 204 L 1090 204" class="wire-sig"/>
+
+  <!-- R7 in ground leg, no wire through symbol -->
+  <line x1="1090" y1="226" x2="1038" y2="226" class="wire-gnd"/>
+  <rect x="988" y="219" width="46" height="14" class="comp" rx="2"/>
+  <text x="1011" y="229" class="comp-val">1 ohm R7</text>
+  <line x1="988" y1="226" x2="942" y2="226" class="wire-gnd"/>
+  <circle cx="1038" cy="226" r="2.5" class="junction"/>
+  <line x1="942" y1="226" x2="942" y2="960" class="wire-gnd"/>
+
+  <!-- A1 sense explicit tap -->
+  <path d="M 810 398 L 910 398 L 910 210 L 1038 210 L 1038 226" class="wire-sig"/>
+  <circle cx="1038" cy="210" r="2.5" class="junction"/>
+  <text x="916" y="204" class="note">A1 tap (high side of R7)</text>
+
+  <!-- Buzzer -->
+  <text x="920" y="760" class="section-label">Buzzer</text>
+  <rect x="1050" y="820" width="122" height="64" class="comp" rx="6" fill="#fffff0"/>
+  <text x="1111" y="848" class="comp-label">Passive Buzzer</text>
+  <text x="1111" y="866" class="comp-val">two-pin</text>
+
+  <rect x="960" y="842" width="72" height="14" class="comp" rx="2"/>
+  <text x="996" y="852" class="comp-val">100 R_buzz</text>
+
+  <!-- D5 -> resistor -> buzzer (+) -->
+  <path d="M 480 518 L 430 518 L 430 849 L 960 849" class="wire-sig"/>
+  <line x1="1032" y1="849" x2="1050" y2="849" class="wire-sig"/>
+  <circle cx="960" cy="849" r="2.5" class="junction"/>
+  <circle cx="1032" cy="849" r="2.5" class="junction"/>
+  <circle cx="1050" cy="849" r="2.5" class="junction"/>
+
+  <!-- buzzer (-) -> gnd -->
+  <line x1="1111" y1="884" x2="1111" y2="960" class="wire-gnd"/>
+  <circle cx="1111" cy="884" r="2.5" class="junction"/>
+
+  <!-- bottom summary -->
+  <rect x="30" y="990" width="1340" height="72" fill="#f5f5ff" stroke="#aaa" rx="4"/>
+  <text x="42" y="1010" class="section-label" font-size="12">Pin Summary</text>
+  <text x="42" y="1028" class="note">D2/D3/D4 = keypad columns, A0 = keypad ladder node, D5 = buzzer, D9 = servo PWM, A1 = servo current sense.</text>
+  <text x="42" y="1044" class="note">VCC=pin7, AVCC=pin20, GND=pins8/22, RESET pin1 via 10k pull-up, XTAL pins9/10 with 22pF caps to GND.</text>
+</svg>
