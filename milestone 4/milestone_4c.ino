@@ -52,6 +52,22 @@
 #include <string.h>
 #include "sha256_types.h"
 
+enum LockState {
+  STATE_LOCKED = 0,
+  STATE_UNLOCKED = 1,
+  STATE_SAVE_PASSWORD = 2,
+  STATE_LOCKING = 3,
+  STATE_UNLOCKING = 4
+};
+
+enum LedEvent {
+  LED_EVENT_NONE = 0,
+  LED_EVENT_WRONG = 1,
+  LED_EVENT_BLOCKED = 2,
+  LED_EVENT_SAVED = 3,
+  LED_EVENT_WAKE = 4
+};
+
 const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
 const uint8_t SERVO_SENSE_PIN = A1;
@@ -125,22 +141,6 @@ static const uint16_t EE_BASE = 0;
 static uint8_t storedSalt[16];
 static uint8_t storedHash[32];
 static bool hasStoredPassword = false;
-
-enum LockState {
-  STATE_LOCKED = 0,
-  STATE_UNLOCKED = 1,
-  STATE_SAVE_PASSWORD = 2,
-  STATE_LOCKING = 3,
-  STATE_UNLOCKING = 4
-};
-
-enum LedEvent {
-  LED_EVENT_NONE = 0,
-  LED_EVENT_WRONG = 1,
-  LED_EVENT_BLOCKED = 2,
-  LED_EVENT_SAVED = 3,
-  LED_EVENT_WAKE = 4
-};
 
 static LockState lockState = STATE_LOCKED;
 static LockState saveReturnState = STATE_UNLOCKED;
