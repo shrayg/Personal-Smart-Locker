@@ -4,13 +4,15 @@ Use the **same three UI LEDs** as Milestone 4b. No extra parts are required for 
 
 ## What each level means (software)
 
-| Rail estimate (AVcc) | `railLevel` | LED | Pattern (low average current) |
-|----------------------|-------------|-----|--------------------------------|
-| Below ~4.70 V (after debounce) | 1 — warning | **Yellow (D8)** | ON 250 ms, OFF 2.25 s (repeat) |
-| Below ~4.40 V | 2 — critical | **Red (D6)** | ON 150 ms, OFF 350 ms (repeat) |
-| Above ~4.70 V | 0 — OK | (normal lock UI) | Red/green/yellow as before |
+| Rail estimate (AVcc) | `railLevel` | LED + buzzer (same phase) |
+|----------------------|-------------|-----------------------------|
+| Below ~4.70 V (after debounce) | 1 — warning | **Yellow (D8)** ON while buzzer ON: **80 ms** on, **120 ms** off (repeats) |
+| Below ~4.40 V | 2 — critical | **Red (D6)** ON while buzzer ON: **45 ms** on, **55 ms** off (repeats) |
+| Above ~4.70 V | 0 — OK | Normal lock UI; buzzer silent for rail |
 
-Rail is sampled about **once per 60 s** with short ADC bursts (`readFiveVRailMilliVoltsAveraged`), so checking does not run continuously. LED duty cycles are kept short so alerting does not add much load.
+While a **different** UI is shown (wrong-password / wake / saved / blocked LED animation, or save-password yellow), rail buzzer+LED **pause ~1.6 s**, that UI runs, then **~1.6 s** all quiet, then the rail alert pattern resumes.
+
+Rail is sampled about **once per 60 s** with short ADC bursts (`readFiveVRailMilliVoltsAveraged`), so checking does not run continuously. Short ON times keep average load low.
 
 ## Wiring (identical to 4b UI LEDs)
 
@@ -37,4 +39,4 @@ Notes:
 
 ## Buzzer (D5)
 
-The **passive buzzer on D5** is still supported for the **manual** `P` serial test only. **Battery alerts do not use the buzzer** in `milestone_4c.ino`.
+The **passive buzzer on D5** is driven **in sync** with the yellow (warning) or red (critical) LED during rail alerts. Serial **`P`** still runs a one-shot test beep (brief blocking); rail handling may resume on the next loop.

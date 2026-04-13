@@ -29,10 +29,11 @@
 
   Milestone 4a (implemented here in 4c per spec):
     Low-battery / weak-supply monitor on the 5 V rail (AVcc estimate).
-    Two alert levels use existing UI LEDs (no buzzer for battery):
-      railLevel 1 (warning):  yellow D8 slow pulse, low duty cycle
-      railLevel 2 (critical): red D6 faster pulse
-    Buzzer on D5 is optional: manual test only (Serial P), not used for rail alerts.
+    Two alert levels: buzzer on D5 and UI LEDs blink in sync (same ON/OFF ms).
+      railLevel 1 (warning): yellow D8 + buzzer, 80 ms on / 120 ms off (repeat)
+      railLevel 2 (critical): red D6 + buzzer, 45 ms on / 55 ms off (repeat)
+    When a different UI runs (LED events, save-password yellow), rail blink/buzzer
+    pause ~1.6 s, then that UI runs, then ~1.6 s quiet, then rail alert resumes.
 
   Milestone 4b:
     LED user interface
@@ -65,11 +66,14 @@ static const uint16_t BUZZER_HZ = 2000;
 static const uint16_t RAIL_WARN_MV = 4700;
 static const uint16_t RAIL_CRIT_MV = 4400;
 
-/* LED-only battery alerts: long period + short ON time keeps average LED current low. */
-static const uint16_t BAT_LED_WARN_ON_MS     = 250;
-static const uint16_t BAT_LED_WARN_PERIOD_MS = 2500;
-static const uint16_t BAT_LED_CRIT_ON_MS     = 150;
-static const uint16_t BAT_LED_CRIT_PERIOD_MS = 500;
+/* Rail alert: buzzer and LED use the same phase (short ON, longer OFF). */
+static const uint16_t RAIL_BUZZ_WARN_ON_MS  = 80;
+static const uint16_t RAIL_BUZZ_WARN_GAP_MS = 120;
+static const uint16_t RAIL_BUZZ_CRIT_ON_MS  = 45;
+static const uint16_t RAIL_BUZZ_CRIT_GAP_MS = 55;
+
+/* Quiet gaps before / after other UI while rail is low (ms). */
+static const uint16_t BAT_UI_GAP_MS = 1600;
 
 static const unsigned long RAIL_CHECK_INTERVAL_MS = 60000UL;
 static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
@@ -79,6 +83,20 @@ static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
 static uint8_t railBelowWarnStreak = 0;
 static uint8_t railLevel = 0;
+
+static uint32_t buzzerNextMs = 0;
+static bool buzzerToneOn = false;
+static uint8_t buzzerRailPhaseReady = 0;
+
+/* Deferred LED event while rail alert: 1=pre-gap, 2=animation playing, 3=post-gap */
+static uint8_t batEvSeq = 0;
+static uint32_t batEvSeqT0 = 0;
+static LedEvent batEvPending = LED_EVENT_NONE;
+
+/* Save-mode yellow vs rail warn: 1=pre-gap, 2=save UI, 3=post-gap */
+static uint8_t batSaveSeq = 0;
+static uint32_t batSaveSeqT0 = 0;
+static LockState batRunLedsPrevLock = STATE_LOCKED;
 
 const char KEYMAP[4][3] = {
   {'1','2','3'},
@@ -163,6 +181,8 @@ static bool ledsSleeping = false;
 
 static bool verifyPassword(const char* s);
 
+static void buzzerStopTone(void);
+
 static void spamStatus(const char *msg) {
   Serial.println(msg);
 }
@@ -202,8 +222,16 @@ static void initLeds() {
 }
 
 static void startLedEvent(uint8_t eventValue) {
-  ledEvent = (LedEvent)eventValue;
-  ledEventStart = millis();
+  LedEvent ev = (LedEvent)eventValue;
+
+  if (railLevel >= 1) {
+    batEvPending = ev;
+    batEvSeq = 1;
+    batEvSeqT0 = millis();
+  } else {
+    ledEvent = ev;
+    ledEventStart = millis();
+  }
 }
 
 static void enterSavePasswordMode(uint8_t returnState) {
@@ -212,7 +240,24 @@ static void enterSavePasswordMode(uint8_t returnState) {
   unlockHashCount = 0;
   lockedHashCount = 0;
   clearEntered();
+
+  if (railLevel >= 1) {
+    batSaveSeq = 1;
+    batSaveSeqT0 = millis();
+    batEvSeq = 0;
+    batEvPending = LED_EVENT_NONE;
+  }
+
   Serial.println("SAVE MODE: enter new 4-digit password, then #");
+}
+
+static void completeLedEventAnimation() {
+  ledEvent = LED_EVENT_NONE;
+
+  if (railLevel >= 1 && batEvSeq == 2) {
+    batEvSeq = 3;
+    batEvSeqT0 = millis();
+  }
 }
 
 static void runLeds() {
@@ -221,6 +266,62 @@ static void runLeds() {
   if (ledsSleeping) {
     setLeds(false, false, false);
     return;
+  }
+
+  if (railLevel == 0) {
+    batEvSeq = 0;
+    batEvPending = LED_EVENT_NONE;
+    batSaveSeq = 0;
+  }
+
+  if (batRunLedsPrevLock == STATE_SAVE_PASSWORD && lockState != STATE_SAVE_PASSWORD && railLevel >= 1) {
+    batSaveSeq = 3;
+    batSaveSeqT0 = millis();
+  }
+
+  batRunLedsPrevLock = lockState;
+
+  if (railLevel >= 1 && batEvSeq == 3) {
+    if ((uint32_t)(now - batEvSeqT0) < BAT_UI_GAP_MS) {
+      setLeds(false, false, false);
+      buzzerStopTone();
+      return;
+    }
+
+    batEvSeq = 0;
+  }
+
+  if (railLevel >= 1 && batEvSeq == 1) {
+    if ((uint32_t)(now - batEvSeqT0) < BAT_UI_GAP_MS) {
+      setLeds(false, false, false);
+      buzzerStopTone();
+      return;
+    }
+
+    ledEvent = batEvPending;
+    batEvPending = LED_EVENT_NONE;
+    ledEventStart = millis();
+    batEvSeq = 2;
+  }
+
+  if (railLevel >= 1 && batSaveSeq == 3) {
+    if ((uint32_t)(now - batSaveSeqT0) < BAT_UI_GAP_MS) {
+      setLeds(false, false, false);
+      buzzerStopTone();
+      return;
+    }
+
+    batSaveSeq = 0;
+  }
+
+  if (railLevel >= 1 && lockState == STATE_SAVE_PASSWORD && batSaveSeq == 1) {
+    if ((uint32_t)(now - batSaveSeqT0) < BAT_UI_GAP_MS) {
+      setLeds(false, false, false);
+      buzzerStopTone();
+      return;
+    }
+
+    batSaveSeq = 2;
   }
 
   if (ledEvent != LED_EVENT_NONE) {
@@ -232,7 +333,8 @@ static void runLeds() {
         setLeds(redOn, false, false);
         return;
       }
-      ledEvent = LED_EVENT_NONE;
+
+      completeLedEventAnimation();
     }
     else if (ledEvent == LED_EVENT_BLOCKED) {
       if (dt < 1000) {
@@ -240,7 +342,8 @@ static void runLeds() {
         setLeds(on, false, on);
         return;
       }
-      ledEvent = LED_EVENT_NONE;
+
+      completeLedEventAnimation();
     }
     else if (ledEvent == LED_EVENT_SAVED) {
       if (dt < 900) {
@@ -248,7 +351,8 @@ static void runLeds() {
         setLeds(false, false, yellowOn);
         return;
       }
-      ledEvent = LED_EVENT_NONE;
+
+      completeLedEventAnimation();
     }
     else if (ledEvent == LED_EVENT_WAKE) {
       if (dt < 500) {
@@ -256,28 +360,27 @@ static void runLeds() {
         setLeds(false, greenOn, false);
         return;
       }
-      ledEvent = LED_EVENT_NONE;
+
+      completeLedEventAnimation();
     }
     else {
-      ledEvent = LED_EVENT_NONE;
+      completeLedEventAnimation();
     }
   }
 
+  if (lockState == STATE_SAVE_PASSWORD && (railLevel < 1 || batSaveSeq == 2)) {
+    bool yellowOn = ((now / 300) % 2) == 0;
+    setLeds(false, false, yellowOn);
+    return;
+  }
+
   if (railLevel >= 2) {
-    uint32_t ph = now % BAT_LED_CRIT_PERIOD_MS;
-    setLeds(ph < BAT_LED_CRIT_ON_MS, false, false);
+    setLeds(buzzerToneOn, false, false);
     return;
   }
 
   if (railLevel == 1) {
-    uint32_t ph = now % BAT_LED_WARN_PERIOD_MS;
-    setLeds(false, false, ph < BAT_LED_WARN_ON_MS);
-    return;
-  }
-
-  if (lockState == STATE_SAVE_PASSWORD) {
-    bool yellowOn = ((now / 300) % 2) == 0;
-    setLeds(false, false, yellowOn);
+    setLeds(false, false, buzzerToneOn);
     return;
   }
 
@@ -310,9 +413,51 @@ static void buzzerBeepOnce() {
   buzzerStopTone();
 }
 
+static bool railAlertFlashAndBuzzerPaused() {
+  if (railLevel < 1) {
+    return true;
+  }
+
+  return (batEvSeq != 0) || (batSaveSeq != 0);
+}
+
 static void serviceBuzzer() {
-  if (railLevel != 0) {
+  uint32_t now = millis();
+
+  if (railLevel < 1) {
+    buzzerRailPhaseReady = 0;
+    buzzerToneOn = false;
     buzzerStopTone();
+    return;
+  }
+
+  if (railAlertFlashAndBuzzerPaused()) {
+    buzzerRailPhaseReady = 0;
+    buzzerToneOn = false;
+    buzzerStopTone();
+    return;
+  }
+
+  if (!buzzerRailPhaseReady) {
+    buzzerRailPhaseReady = 1;
+    buzzerNextMs = now;
+    buzzerToneOn = false;
+  }
+
+  if ((long)(now - buzzerNextMs) >= 0) {
+    buzzerToneOn = !buzzerToneOn;
+
+    if (railLevel >= 2) {
+      buzzerNextMs = now + (buzzerToneOn ? RAIL_BUZZ_CRIT_ON_MS : RAIL_BUZZ_CRIT_GAP_MS);
+    } else {
+      buzzerNextMs = now + (buzzerToneOn ? RAIL_BUZZ_WARN_ON_MS : RAIL_BUZZ_WARN_GAP_MS);
+    }
+
+    if (buzzerToneOn) {
+      buzzerPlayTone();
+    } else {
+      buzzerStopTone();
+    }
   }
 }
 
@@ -405,6 +550,12 @@ static void maybeCheckBattery() {
     if (railLevel != 0) {
       Serial.println("Supply OK (5 V rail above warning threshold).");
       railLevel = 0;
+      buzzerRailPhaseReady = 0;
+      buzzerToneOn = false;
+      buzzerStopTone();
+      batEvSeq = 0;
+      batEvPending = LED_EVENT_NONE;
+      batSaveSeq = 0;
     }
     return;
   }
@@ -435,11 +586,11 @@ static void maybeCheckBattery() {
   if (railLevel >= 2) {
     Serial.print("POWER CRITICAL - ");
     printRailMilliVolts(rail);
-    Serial.println("Battery/source too weak; replace before lockout. (red LED fast pulse)");
+    Serial.println("Battery/source too weak; replace before lockout. (red LED + buzzer in sync)");
   } else {
     Serial.print("POWER LOW - ");
     printRailMilliVolts(rail);
-    Serial.println("Replace battery or recharge soon. (yellow LED slow pulse)");
+    Serial.println("Replace battery or recharge soon. (yellow LED + buzzer in sync)");
   }
 }
 
@@ -1025,7 +1176,7 @@ void setup() {
   Serial.println("  U        : unlock");
   Serial.println("  R        : servo reset pulse");
   Serial.println("  B        : print 5V rail check");
-  Serial.println("  P        : beep buzzer once (manual test; battery uses LEDs only)");
+  Serial.println("  P        : beep buzzer once (manual test; rail alerts sync LED + buzzer)");
   Serial.println("  Keypad   : ##### <code> # saves password, <code> # tests password, * locks");
 
   setupTimer1();
