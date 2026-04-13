@@ -182,6 +182,7 @@ static bool ledsSleeping = false;
 static bool verifyPassword(const char* s);
 
 static void buzzerStopTone(void);
+static bool cryptoEepromSectionActive(void);
 
 static void spamStatus(const char *msg) {
   Serial.println(msg);
@@ -264,6 +265,11 @@ static void runLeds() {
   uint32_t now = millis();
 
   if (ledsSleeping) {
+    setLeds(false, false, false);
+    return;
+  }
+
+  if (cryptoEepromSectionActive()) {
     setLeds(false, false, false);
     return;
   }
@@ -423,6 +429,11 @@ static bool railAlertFlashAndBuzzerPaused() {
 
 static void serviceBuzzer() {
   uint32_t now = millis();
+
+  if (cryptoEepromSectionActive()) {
+    buzzerStopTone();
+    return;
+  }
 
   if (railLevel < 1) {
     buzzerRailPhaseReady = 0;
@@ -704,9 +715,12 @@ static const uint32_t sha256_k[64] = {
     0x748f82eeUL, 0x78a5636fUL, 0x84c87814UL, 0x8cc70208UL, 0x90befffaUL, 0xa4506cebUL, 0xbef9a3f7UL, 0xc67178f2UL
 };
 
+/* Static W[64]: 256 B on stack here was blowing RAM/stack on ATmega328 and contributed to brownouts. */
+static uint32_t sha256_w[64];
+
 static void sha256_transform(Sha256Ctx* ctx, const uint8_t* data) {
   uint32_t a, b, c, d, e, f, g, h;
-  uint32_t m[64];
+  uint32_t* const m = sha256_w;
   uint8_t i;
   uint8_t j;
 
@@ -817,13 +831,37 @@ static void sha256_final(Sha256Ctx* ctx, uint8_t* hash) {
 }
 
 static void sha256_buffer(const uint8_t* data, size_t len, uint8_t* hash32) {
-  Sha256Ctx ctx;
-  sha256_init(&ctx);
-  sha256_update(&ctx, data, len);
-  sha256_final(&ctx, hash32);
+  static Sha256Ctx sha256_ctx_static;
+  sha256_init(&sha256_ctx_static);
+  sha256_update(&sha256_ctx_static, data, len);
+  sha256_final(&sha256_ctx_static, hash32);
 }
 
 // ---------- EEPROM: salted hash only (SHA-256(salt || password)) ----------
+
+/* During SHA + EEPROM programming, cut buzzer/LED load and stagger writes (weak 5V rail). */
+static uint8_t cryptoEepromHold = 0;
+
+static void beginCryptoEepromSection() {
+  if (cryptoEepromHold == 0) {
+    buzzerStopTone();
+    buzzerRailPhaseReady = 0;
+    buzzerToneOn = false;
+    setLeds(false, false, false);
+  }
+
+  cryptoEepromHold++;
+}
+
+static void endCryptoEepromSection() {
+  if (cryptoEepromHold > 0) {
+    cryptoEepromHold--;
+  }
+}
+
+static bool cryptoEepromSectionActive() {
+  return cryptoEepromHold != 0;
+}
 
 static uint8_t eeRead(uint16_t a) {
   while (EECR & (1 << EEPE)) {
@@ -847,6 +885,7 @@ static void eeWrite(uint16_t a, uint8_t v) {
   EECR |= (1 << EEPE);
 
   SREG = s;
+  delayMicroseconds(600);
 }
 
 static void secureWipe(uint8_t* p, size_t n) {
@@ -873,14 +912,17 @@ static void generateSalt16(uint8_t* salt) {
 }
 
 static void hashPasswordBytes(const uint8_t* salt16, const uint8_t* pw, uint8_t pwLen, uint8_t out32[32]) {
+  beginCryptoEepromSection();
   uint8_t buf[24];
   memcpy(buf, salt16, 16);
   memcpy(buf + 16, pw, pwLen);
   sha256_buffer(buf, (size_t)(16 + pwLen), out32);
   secureWipe(buf, sizeof(buf));
+  endCryptoEepromSection();
 }
 
 static void writeSecureRecord(const uint8_t* salt16, const uint8_t* hash32, uint8_t pwLenMeta) {
+  beginCryptoEepromSection();
   eeWrite(EE_BASE + 0, SEC_MAGIC0);
   eeWrite(EE_BASE + 1, SEC_MAGIC1);
   eeWrite(EE_BASE + 2, SEC_VERSION);
@@ -891,6 +933,7 @@ static void writeSecureRecord(const uint8_t* salt16, const uint8_t* hash32, uint
   for (uint8_t i = 0; i < 32; i++) {
     eeWrite(EE_BASE + 20 + i, hash32[i]);
   }
+  endCryptoEepromSection();
 }
 
 static void savePasswordHash(const uint8_t* p, uint8_t n) {
