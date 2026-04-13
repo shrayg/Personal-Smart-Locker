@@ -46,6 +46,7 @@
 #include <avr/interrupt.h>
 #include <stdint.h>
 #include <string.h>
+#include "sha256_types.h"
 
 const uint8_t COL_PINS[3] = {2, 3, 4};
 const uint8_t ROW_ANALOG_PIN = A0;
@@ -604,13 +605,6 @@ static char getKeyEvent() {
 }
 
 // -------------------- SHA-256 (no external libraries) --------------------
-
-typedef struct {
-  uint8_t data[64];
-  uint32_t datalen;
-  uint64_t bitlen;
-  uint32_t state[8];
-} Sha256Ctx;
 
 #define SHA_ROTR(x, n) (((x) >> (n)) | ((x) << (32u - (n))))
 #define SHA_CH(x, y, z) (((x) & (y)) ^ (~(x) & (z)))
