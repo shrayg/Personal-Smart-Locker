@@ -27,9 +27,12 @@
     Sleep after inactivity
     Wake on keypad press using A0 pin-change interrupt + watchdog check
 
-  Milestone 4a:
-    Low-battery / weak-supply monitor on the 5 V rail
-    Passive buzzer on D5 for battery alerts
+  Milestone 4a (implemented here in 4c per spec):
+    Low-battery / weak-supply monitor on the 5 V rail (AVcc estimate).
+    Two alert levels use existing UI LEDs (no buzzer for battery):
+      railLevel 1 (warning):  yellow D8 slow pulse, low duty cycle
+      railLevel 2 (critical): red D6 faster pulse
+    Buzzer on D5 is optional: manual test only (Serial P), not used for rail alerts.
 
   Milestone 4b:
     LED user interface
@@ -59,15 +62,14 @@ const uint8_t yellowPin = 8;
 
 static const uint16_t BUZZER_HZ = 2000;
 
-static const uint16_t BUZZ_WARN_ON_MS  = 80;
-static const uint16_t BUZZ_WARN_GAP_MS = 120;
-static const uint8_t  BUZZ_WARN_COUNT  = 5;
-
-static const uint16_t BUZZ_CRIT_ON_MS  = 45;
-static const uint16_t BUZZ_CRIT_GAP_MS = 55;
-
 static const uint16_t RAIL_WARN_MV = 4700;
 static const uint16_t RAIL_CRIT_MV = 4400;
+
+/* LED-only battery alerts: long period + short ON time keeps average LED current low. */
+static const uint16_t BAT_LED_WARN_ON_MS     = 250;
+static const uint16_t BAT_LED_WARN_PERIOD_MS = 2500;
+static const uint16_t BAT_LED_CRIT_ON_MS     = 150;
+static const uint16_t BAT_LED_CRIT_PERIOD_MS = 500;
 
 static const unsigned long RAIL_CHECK_INTERVAL_MS = 60000UL;
 static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
@@ -77,19 +79,6 @@ static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
 static uint8_t railBelowWarnStreak = 0;
 static uint8_t railLevel = 0;
-
-static bool buzzerWarnBurstPending = false;
-
-enum BuzzerMode {
-  BUZZ_IDLE = 0,
-  BUZZ_WARN_FIVE = 1,
-  BUZZ_CRIT_FAST = 2
-};
-
-static BuzzerMode buzzerMode = BUZZ_IDLE;
-static uint32_t buzzerNextMs = 0;
-static uint8_t buzzerBeepDone = 0;
-static bool buzzerToneOn = false;
 
 const char KEYMAP[4][3] = {
   {'1','2','3'},
@@ -274,6 +263,18 @@ static void runLeds() {
     }
   }
 
+  if (railLevel >= 2) {
+    uint32_t ph = now % BAT_LED_CRIT_PERIOD_MS;
+    setLeds(ph < BAT_LED_CRIT_ON_MS, false, false);
+    return;
+  }
+
+  if (railLevel == 1) {
+    uint32_t ph = now % BAT_LED_WARN_PERIOD_MS;
+    setLeds(false, false, ph < BAT_LED_WARN_ON_MS);
+    return;
+  }
+
   if (lockState == STATE_SAVE_PASSWORD) {
     bool yellowOn = ((now / 300) % 2) == 0;
     setLeds(false, false, yellowOn);
@@ -297,10 +298,6 @@ static void buzzerStopTone() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-static void buzzerQueueWarnFiveBeeps() {
-  buzzerWarnBurstPending = true;
-}
-
 static void buzzerInit() {
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
@@ -314,76 +311,8 @@ static void buzzerBeepOnce() {
 }
 
 static void serviceBuzzer() {
-  uint32_t now = millis();
-
-  if (railLevel == 0) {
-    buzzerMode = BUZZ_IDLE;
-    buzzerWarnBurstPending = false;
-    buzzerBeepDone = 0;
-    buzzerToneOn = false;
+  if (railLevel != 0) {
     buzzerStopTone();
-    return;
-  }
-
-  if (railLevel >= 2) {
-    buzzerWarnBurstPending = false;
-
-    if (buzzerMode != BUZZ_CRIT_FAST) {
-      buzzerMode = BUZZ_CRIT_FAST;
-      buzzerToneOn = false;
-      buzzerNextMs = now;
-    }
-
-    if ((long)(now - buzzerNextMs) >= 0) {
-      if (!buzzerToneOn) {
-        buzzerPlayTone();
-        buzzerToneOn = true;
-        buzzerNextMs = now + BUZZ_CRIT_ON_MS;
-      } else {
-        buzzerStopTone();
-        buzzerToneOn = false;
-        buzzerNextMs = now + BUZZ_CRIT_GAP_MS;
-      }
-    }
-    return;
-  }
-
-  if (railLevel == 1) {
-    if (buzzerMode == BUZZ_CRIT_FAST) {
-      buzzerMode = BUZZ_IDLE;
-      buzzerToneOn = false;
-      buzzerStopTone();
-    }
-
-    if (buzzerWarnBurstPending && buzzerMode == BUZZ_IDLE) {
-      buzzerWarnBurstPending = false;
-      buzzerMode = BUZZ_WARN_FIVE;
-      buzzerBeepDone = 0;
-      buzzerToneOn = false;
-      buzzerNextMs = now;
-    }
-
-    if (buzzerMode != BUZZ_WARN_FIVE) {
-      return;
-    }
-
-    if (buzzerBeepDone >= BUZZ_WARN_COUNT && !buzzerToneOn) {
-      buzzerMode = BUZZ_IDLE;
-      return;
-    }
-
-    if ((long)(now - buzzerNextMs) >= 0) {
-      if (!buzzerToneOn) {
-        buzzerPlayTone();
-        buzzerToneOn = true;
-        buzzerNextMs = now + BUZZ_WARN_ON_MS;
-      } else {
-        buzzerStopTone();
-        buzzerToneOn = false;
-        buzzerBeepDone++;
-        buzzerNextMs = now + BUZZ_WARN_GAP_MS;
-      }
-    }
   }
 }
 
@@ -506,12 +435,11 @@ static void maybeCheckBattery() {
   if (railLevel >= 2) {
     Serial.print("POWER CRITICAL - ");
     printRailMilliVolts(rail);
-    Serial.println("Battery/source too weak; replace before lockout.");
+    Serial.println("Battery/source too weak; replace before lockout. (red LED fast pulse)");
   } else {
     Serial.print("POWER LOW - ");
     printRailMilliVolts(rail);
-    Serial.println("Replace battery or recharge soon.");
-    buzzerQueueWarnFiveBeeps();
+    Serial.println("Replace battery or recharge soon. (yellow LED slow pulse)");
   }
 }
 
@@ -1050,8 +978,6 @@ static void enterSleepIfIdle() {
   setLeds(false, false, false);
 
   buzzerStopTone();
-  buzzerMode = BUZZ_IDLE;
-  buzzerToneOn = false;
 
   ADCSRA &= ~(1 << ADEN);
 
@@ -1099,7 +1025,7 @@ void setup() {
   Serial.println("  U        : unlock");
   Serial.println("  R        : servo reset pulse");
   Serial.println("  B        : print 5V rail check");
-  Serial.println("  P        : beep buzzer once");
+  Serial.println("  P        : beep buzzer once (manual test; battery uses LEDs only)");
   Serial.println("  Keypad   : ##### <code> # saves password, <code> # tests password, * locks");
 
   setupTimer1();
