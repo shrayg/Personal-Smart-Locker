@@ -48,6 +48,7 @@
 #include <Arduino.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/pgmspace.h>
 #include <stdint.h>
 #include <string.h>
 #include "sha256_types.h"
@@ -704,7 +705,8 @@ static char getKeyEvent() {
 #define SHA_SIG0(x) (SHA_ROTR((x), 7) ^ SHA_ROTR((x), 18) ^ ((x) >> 3))
 #define SHA_SIG1(x) (SHA_ROTR((x), 17) ^ SHA_ROTR((x), 19) ^ ((x) >> 10))
 
-static const uint32_t sha256_k[64] = {
+/* In flash only: was 256 B of RAM and worsened stack pressure during SHA + save. */
+static const uint32_t sha256_k[64] PROGMEM = {
     0x428a2f98UL, 0x71374491UL, 0xb5c0fbcfUL, 0xe9b5dba5UL, 0x3956c25bUL, 0x59f111f1UL, 0x923f82a4UL, 0xab1c5ed5UL,
     0xd807aa98UL, 0x12835b01UL, 0x243185beUL, 0x550c7dc3UL, 0x72be5d74UL, 0x80deb1feUL, 0x9bdc06a7UL, 0xc19bf174UL,
     0xe49b69c1UL, 0xefbe4786UL, 0x0fc19dc6UL, 0x240ca1ccUL, 0x2de92c6fUL, 0x4a7484aaUL, 0x5cb0a9dcUL, 0x76f988daUL,
@@ -742,7 +744,8 @@ static void sha256_transform(Sha256Ctx* ctx, const uint8_t* data) {
   h = ctx->state[7];
 
   for (uint8_t r = 0; r < 64; r++) {
-    uint32_t t1 = h + SHA_EP1(e) + SHA_CH(e, f, g) + sha256_k[r] + m[r];
+    uint32_t kr = pgm_read_dword(&sha256_k[r]);
+    uint32_t t1 = h + SHA_EP1(e) + SHA_CH(e, f, g) + kr + m[r];
     uint32_t t2 = SHA_EP0(a) + SHA_MAJ(a, b, c);
     h = g;
     g = f;
@@ -885,7 +888,7 @@ static void eeWrite(uint16_t a, uint8_t v) {
   EECR |= (1 << EEPE);
 
   SREG = s;
-  delayMicroseconds(600);
+  delayMicroseconds(4500);
 }
 
 static void secureWipe(uint8_t* p, size_t n) {
@@ -911,43 +914,77 @@ static void generateSalt16(uint8_t* salt) {
   }
 }
 
-static void hashPasswordBytes(const uint8_t* salt16, const uint8_t* pw, uint8_t pwLen, uint8_t out32[32]) {
-  beginCryptoEepromSection();
+static void hashPasswordBytesCore(const uint8_t* salt16, const uint8_t* pw, uint8_t pwLen, uint8_t out32[32]) {
   uint8_t buf[24];
   memcpy(buf, salt16, 16);
   memcpy(buf + 16, pw, pwLen);
   sha256_buffer(buf, (size_t)(16 + pwLen), out32);
   secureWipe(buf, sizeof(buf));
+}
+
+static void hashPasswordBytes(const uint8_t* salt16, const uint8_t* pw, uint8_t pwLen, uint8_t out32[32]) {
+  beginCryptoEepromSection();
+  hashPasswordBytesCore(salt16, pw, pwLen, out32);
   endCryptoEepromSection();
 }
 
-static void writeSecureRecord(const uint8_t* salt16, const uint8_t* hash32, uint8_t pwLenMeta) {
-  beginCryptoEepromSection();
-  eeWrite(EE_BASE + 0, SEC_MAGIC0);
-  eeWrite(EE_BASE + 1, SEC_MAGIC1);
+/*
+ * Commit order: invalidate magic first so a brownout mid-write is not loaded as valid.
+ * Write payload (version, len, salt, hash), then magic 'SH' last as the commit.
+ */
+static void writeSecureRecordCore(const uint8_t* salt16, const uint8_t* hash32, uint8_t pwLenMeta) {
+  eeWrite(EE_BASE + 0, 0xFF);
+  eeWrite(EE_BASE + 1, 0xFF);
+  delay(15);
+
   eeWrite(EE_BASE + 2, SEC_VERSION);
   eeWrite(EE_BASE + 3, pwLenMeta);
   for (uint8_t i = 0; i < 16; i++) {
     eeWrite(EE_BASE + 4 + i, salt16[i]);
+    if ((i & 3) == 3) {
+      delay(5);
+    }
   }
   for (uint8_t i = 0; i < 32; i++) {
     eeWrite(EE_BASE + 20 + i, hash32[i]);
+    if ((i & 3) == 3) {
+      delay(5);
+    }
   }
-  endCryptoEepromSection();
+
+  delay(12);
+  eeWrite(EE_BASE + 0, SEC_MAGIC0);
+  eeWrite(EE_BASE + 1, SEC_MAGIC1);
+  delay(4);
 }
 
-static void savePasswordHash(const uint8_t* p, uint8_t n) {
+static bool savePasswordHash(const uint8_t* p, uint8_t n) {
   if (n > maxLength) {
     n = maxLength;
   }
 
+  beginCryptoEepromSection();
   generateSalt16(storedSalt);
   uint8_t h[32];
-  hashPasswordBytes(storedSalt, p, n, h);
+  hashPasswordBytesCore(storedSalt, p, n, h);
   memcpy(storedHash, h, 32);
-  writeSecureRecord(storedSalt, h, n);
-  hasStoredPassword = true;
+  writeSecureRecordCore(storedSalt, h, n);
+
+  bool committed = (eeRead(EE_BASE + 0) == SEC_MAGIC0 && eeRead(EE_BASE + 1) == SEC_MAGIC1 &&
+                    eeRead(EE_BASE + 2) == SEC_VERSION && eeRead(EE_BASE + 3) == n);
+
   secureWipe(h, sizeof(h));
+  endCryptoEepromSection();
+
+  if (!committed) {
+    hasStoredPassword = false;
+    memset(storedSalt, 0, sizeof(storedSalt));
+    memset(storedHash, 0, sizeof(storedHash));
+    return false;
+  }
+
+  hasStoredPassword = true;
+  return true;
 }
 
 static bool migrateLegacyPlaintext() {
@@ -966,7 +1003,11 @@ static bool migrateLegacyPlaintext() {
   }
 
   Serial.println(F("Migrating EEPROM from legacy plaintext to salted SHA-256."));
-  savePasswordHash(buf, n);
+  if (!savePasswordHash(buf, n)) {
+    Serial.println(F("Migrate save failed."));
+    secureWipe(buf, sizeof(buf));
+    return false;
+  }
   secureWipe(buf, sizeof(buf));
   return true;
 }
@@ -1270,14 +1311,19 @@ void loop() {
           for (uint8_t i = 0; i < 4; i++) {
             tmp[i] = (uint8_t)enteredPassword[i];
           }
-          savePasswordHash(tmp, 4);
-          secureWipe(tmp, sizeof(tmp));
-          Serial.println("Password saved.");
-          lockState = saveReturnState;
-          clearEntered();
-          unlockHashCount = 0;
-          lockedHashCount = 0;
-          startLedEvent(LED_EVENT_SAVED);
+          Serial.flush();
+          if (savePasswordHash(tmp, 4)) {
+            secureWipe(tmp, sizeof(tmp));
+            Serial.println(F("Password saved."));
+            lockState = saveReturnState;
+            clearEntered();
+            unlockHashCount = 0;
+            lockedHashCount = 0;
+            startLedEvent(LED_EVENT_SAVED);
+          } else {
+            secureWipe(tmp, sizeof(tmp));
+            Serial.println(F("Save failed (power/EEPROM). Staying in save mode; retry."));
+          }
         } else {
           Serial.println("SAVE MODE: enter 4 digits, then #");
         }
@@ -1395,10 +1441,15 @@ void loop() {
           tmp[i] = (uint8_t)p[i];
         }
 
-        savePasswordHash(tmp, L);
-        secureWipe(tmp, sizeof(tmp));
-        Serial.println("Password saved.");
-        startLedEvent(LED_EVENT_SAVED);
+        Serial.flush();
+        if (savePasswordHash(tmp, L)) {
+          secureWipe(tmp, sizeof(tmp));
+          Serial.println(F("Password saved."));
+          startLedEvent(LED_EVENT_SAVED);
+        } else {
+          secureWipe(tmp, sizeof(tmp));
+          Serial.println(F("Password save failed."));
+        }
       }
       else if (c == 'T' && line[1] == ' ') {
         const char* p = line + 2;
