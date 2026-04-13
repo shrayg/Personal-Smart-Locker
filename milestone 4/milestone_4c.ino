@@ -720,14 +720,15 @@ static void sha256_final(Sha256Ctx* ctx, uint8_t* hash) {
   }
 
   ctx->bitlen += (uint64_t)ctx->datalen * 8ULL;
-  ctx->data[56] = (uint8_t)(ctx->bitlen);
-  ctx->data[57] = (uint8_t)(ctx->bitlen >> 8);
-  ctx->data[58] = (uint8_t)(ctx->bitlen >> 16);
-  ctx->data[59] = (uint8_t)(ctx->bitlen >> 24);
-  ctx->data[60] = (uint8_t)(ctx->bitlen >> 32);
-  ctx->data[61] = (uint8_t)(ctx->bitlen >> 40);
-  ctx->data[62] = (uint8_t)(ctx->bitlen >> 48);
-  ctx->data[63] = (uint8_t)(ctx->bitlen >> 56);
+  /* Length field is 64-bit big-endian (FIPS 180-4): MSB at data[56], LSB at data[63]. */
+  ctx->data[56] = (uint8_t)(ctx->bitlen >> 56);
+  ctx->data[57] = (uint8_t)(ctx->bitlen >> 48);
+  ctx->data[58] = (uint8_t)(ctx->bitlen >> 40);
+  ctx->data[59] = (uint8_t)(ctx->bitlen >> 32);
+  ctx->data[60] = (uint8_t)(ctx->bitlen >> 24);
+  ctx->data[61] = (uint8_t)(ctx->bitlen >> 16);
+  ctx->data[62] = (uint8_t)(ctx->bitlen >> 8);
+  ctx->data[63] = (uint8_t)(ctx->bitlen);
   sha256_transform(ctx, ctx->data);
 
   for (i = 0; i < 4; i++) {
