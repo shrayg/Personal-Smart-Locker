@@ -1,9 +1,5 @@
 
- 
-
-/*
-  Milestone 4 (milestone_4b.ino) — based on your milestone_4a code.
-
+ /*
   Wiring summary:
     Columns: C1->D2, C2->D3, C3->D4
     A0 node:
