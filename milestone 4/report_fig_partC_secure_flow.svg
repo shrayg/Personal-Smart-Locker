@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="700" viewBox="0 0 1450 700">
+  <defs>
+    <style>
+      .title { font: 700 30px Arial, sans-serif; fill: #222; }
+      .box { fill: #f6fbff; stroke: #275f94; stroke-width: 2; rx: 12; ry: 12; }
+      .box2 { fill: #fff8ee; stroke: #9a6a28; stroke-width: 2; rx: 12; ry: 12; }
+      .text { font: 16px Arial, sans-serif; fill: #1f2933; }
+      .small { font: 14px Arial, sans-serif; fill: #334155; }
+      .arrow { stroke: #275f94; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <polygon points="0,0 12,4 0,8" fill="#275f94"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1450" height="700" fill="#ffffff"/>
+  <text x="725" y="46" text-anchor="middle" class="title">Milestone 4C Secure Save + Verify Flow</text>
+
+  <rect x="40" y="110" width="300" height="180" class="box2"/>
+  <text x="190" y="148" text-anchor="middle" class="text">Save Path (S command / keypad save)</text>
+  <text x="190" y="176" text-anchor="middle" class="small">beginCryptoEepromSection()</text>
+  <text x="190" y="200" text-anchor="middle" class="small">stop buzzer + LEDs to cut load</text>
+  <text x="190" y="224" text-anchor="middle" class="small">generateSalt16()</text>
+  <text x="190" y="248" text-anchor="middle" class="small">hashPasswordBytesCore()</text>
+  <text x="190" y="272" text-anchor="middle" class="small">writeSecureRecordCore()</text>
+
+  <rect x="390" y="110" width="300" height="180" class="box"/>
+  <text x="540" y="148" text-anchor="middle" class="text">Hash Construction</text>
+  <text x="540" y="176" text-anchor="middle" class="small">buffer = salt[16] || password[n]</text>
+  <text x="540" y="200" text-anchor="middle" class="small">SHA-256(buffer) -> hash[32]</text>
+  <text x="540" y="224" text-anchor="middle" class="small">secureWipe(temp buffers)</text>
+  <text x="540" y="248" text-anchor="middle" class="small">store only salt + hash</text>
+
+  <rect x="740" y="110" width="340" height="180" class="box"/>
+  <text x="910" y="148" text-anchor="middle" class="text">Commit-Safe EEPROM Write</text>
+  <text x="910" y="176" text-anchor="middle" class="small">invalidate magic first (0xFF, 0xFF)</text>
+  <text x="910" y="200" text-anchor="middle" class="small">write version + len + salt + hash</text>
+  <text x="910" y="224" text-anchor="middle" class="small">staggered delays every 4 bytes</text>
+  <text x="910" y="248" text-anchor="middle" class="small">commit magic last ('S','H')</text>
+  <text x="910" y="272" text-anchor="middle" class="small">brownout-safe validity check</text>
+
+  <rect x="1130" y="110" width="280" height="180" class="box"/>
+  <text x="1270" y="148" text-anchor="middle" class="text">Record in EEPROM</text>
+  <text x="1270" y="176" text-anchor="middle" class="small">EE_BASE=0</text>
+  <text x="1270" y="200" text-anchor="middle" class="small">[SH][ver][len][salt16][hash32]</text>
+  <text x="1270" y="224" text-anchor="middle" class="small">legacy AB -> migrate on boot</text>
+
+  <rect x="250" y="430" width="380" height="190" class="box2"/>
+  <text x="440" y="470" text-anchor="middle" class="text">Verify Path (T command / keypad test)</text>
+  <text x="440" y="500" text-anchor="middle" class="small">load stored salt/hash</text>
+  <text x="440" y="526" text-anchor="middle" class="small">recompute candidate hash</text>
+  <text x="440" y="552" text-anchor="middle" class="small">constTimeEqual(candidate, storedHash)</text>
+  <text x="440" y="578" text-anchor="middle" class="small">result: UNLOCK or DENIED</text>
+
+  <rect x="780" y="430" width="380" height="190" class="box"/>
+  <text x="970" y="470" text-anchor="middle" class="text">Integration Surfaces</text>
+  <text x="970" y="500" text-anchor="middle" class="small">Serial: S &lt;code&gt; / T &lt;code&gt;</text>
+  <text x="970" y="526" text-anchor="middle" class="small">Keypad: same verify/save backend</text>
+  <text x="970" y="552" text-anchor="middle" class="small">shared state machine behavior</text>
+  <text x="970" y="578" text-anchor="middle" class="small">no plaintext password in EEPROM</text>
+
+  <path d="M340 200 L390 200" class="arrow"/>
+  <path d="M690 200 L740 200" class="arrow"/>
+  <path d="M1080 200 L1130 200" class="arrow"/>
+  <path d="M1270 290 L1270 390 L970 390 L970 430" class="arrow"/>
+  <path d="M910 290 L910 390 L440 390 L440 430" class="arrow"/>
+  <path d="M630 525 L780 525" class="arrow"/>
+
+  <text x="725" y="670" text-anchor="middle" class="small">
+    Security model: salted hash storage (not reversible encryption), constant-time compare, and brownout-aware commit sequence.
+  </text>
+</svg>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="540" viewBox="0 0 1400 540">
+  <defs>
+    <style>
+      .title { font: 700 28px Arial, sans-serif; fill: #222; }
+      .box { fill: #f8fbff; stroke: #2f5f9f; stroke-width: 2; rx: 12; ry: 12; }
+      .text { font: 16px Arial, sans-serif; fill: #1e2a36; }
+      .small { font: 14px Arial, sans-serif; fill: #2d3b47; }
+      .arrow { stroke: #2f5f9f; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+      .chip { fill: #fff7e8; stroke: #a86c17; stroke-width: 2; rx: 12; ry: 12; }
+    </style>
+    <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <polygon points="0,0 12,4 0,8" fill="#2f5f9f"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="540" fill="#ffffff"/>
+  <text x="700" y="45" text-anchor="middle" class="title">Milestone 4A: Low-Supply Monitoring and Alert Path</text>
+
+  <rect x="40" y="140" width="230" height="160" class="box"/>
+  <text x="155" y="185" text-anchor="middle" class="text">Bandgap ADC Read</text>
+  <text x="155" y="213" text-anchor="middle" class="small">readAvccMilliVolts()</text>
+  <text x="155" y="238" text-anchor="middle" class="small">ADMUX bandgap channel</text>
+  <text x="155" y="263" text-anchor="middle" class="small">ADCSRA start/complete</text>
+
+  <rect x="320" y="140" width="250" height="160" class="box"/>
+  <text x="445" y="185" text-anchor="middle" class="text">mV Estimate + Averaging</text>
+  <text x="445" y="213" text-anchor="middle" class="small">1125300 / adc conversion</text>
+  <text x="445" y="238" text-anchor="middle" class="small">4 samples averaged</text>
+  <text x="445" y="263" text-anchor="middle" class="small">readFiveVRailMilliVoltsAveraged()</text>
+
+  <rect x="620" y="110" width="270" height="220" class="chip"/>
+  <text x="755" y="150" text-anchor="middle" class="text">Threshold + State Logic</text>
+  <text x="755" y="180" text-anchor="middle" class="small">RAIL_WARN_MV = 4700</text>
+  <text x="755" y="205" text-anchor="middle" class="small">RAIL_CRIT_MV = 4400</text>
+  <text x="755" y="230" text-anchor="middle" class="small">2 consecutive low checks</text>
+  <text x="755" y="255" text-anchor="middle" class="small">railLevel: 0 / 1 / 2</text>
+  <text x="755" y="280" text-anchor="middle" class="small">maybeCheckBattery()</text>
+
+  <rect x="940" y="70" width="200" height="120" class="box"/>
+  <text x="1040" y="112" text-anchor="middle" class="text">Warning Output</text>
+  <text x="1040" y="138" text-anchor="middle" class="small">D8 yellow + D5 buzzer</text>
+  <text x="1040" y="162" text-anchor="middle" class="small">80 ms ON / 120 ms OFF</text>
+
+  <rect x="940" y="220" width="200" height="120" class="box"/>
+  <text x="1040" y="262" text-anchor="middle" class="text">Critical Output</text>
+  <text x="1040" y="288" text-anchor="middle" class="small">D6 red + D5 buzzer</text>
+  <text x="1040" y="312" text-anchor="middle" class="small">45 ms ON / 55 ms OFF</text>
+
+  <rect x="1180" y="140" width="180" height="160" class="box"/>
+  <text x="1270" y="185" text-anchor="middle" class="text">Serial Evidence</text>
+  <text x="1270" y="213" text-anchor="middle" class="small">"POWER LOW"</text>
+  <text x="1270" y="238" text-anchor="middle" class="small">"POWER CRITICAL"</text>
+  <text x="1270" y="263" text-anchor="middle" class="small">B command prints</text>
+
+  <path d="M270 220 L320 220" class="arrow"/>
+  <path d="M570 220 L620 220" class="arrow"/>
+  <path d="M890 170 L940 130" class="arrow"/>
+  <path d="M890 270 L940 280" class="arrow"/>
+  <path d="M1140 190 L1180 220" class="arrow"/>
+  <path d="M1140 280 L1180 240" class="arrow"/>
+
+  <text x="700" y="505" text-anchor="middle" class="small">
+    Non-blocking integration: rail check and alert state run with keypad, servo, crypto, and LED event logic.
+  </text>
+</svg>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620">
+  <style>
+    .title { font: 700 30px Arial, sans-serif; fill: #222; }
+    .hdr { font: 700 18px Arial, sans-serif; fill: #fff; }
+    .cell { font: 16px Consolas, Arial, sans-serif; fill: #1f2933; }
+    .note { font: 14px Arial, sans-serif; fill: #374151; }
+  </style>
+  <rect x="0" y="0" width="1200" height="620" fill="#ffffff"/>
+  <text x="600" y="48" text-anchor="middle" class="title">Milestone 4A Constants and Alert Parameters</text>
+
+  <rect x="80" y="90" width="1040" height="52" fill="#244b7a"/>
+  <text x="180" y="123" class="hdr">Parameter</text>
+  <text x="520" y="123" class="hdr">Value</text>
+  <text x="760" y="123" class="hdr">Usage</text>
+
+  <rect x="80" y="142" width="1040" height="60" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="110" y="178" class="cell">RAIL_WARN_MV</text>
+  <text x="520" y="178" class="cell">4700 mV</text>
+  <text x="760" y="178" class="cell">enter warning level (yellow + buzzer)</text>
+
+  <rect x="80" y="202" width="1040" height="60" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="110" y="238" class="cell">RAIL_CRIT_MV</text>
+  <text x="520" y="238" class="cell">4400 mV</text>
+  <text x="760" y="238" class="cell">enter critical level (red + buzzer)</text>
+
+  <rect x="80" y="262" width="1040" height="60" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="110" y="298" class="cell">RAIL_CHECK_INTERVAL_MS</text>
+  <text x="520" y="298" class="cell">60000 ms (60 s)</text>
+  <text x="760" y="298" class="cell">periodic battery check cadence</text>
+
+  <rect x="80" y="322" width="1040" height="60" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="110" y="358" class="cell">RAIL_ALERT_REPEAT_MS</text>
+  <text x="520" y="358" class="cell">300000 ms (5 min)</text>
+  <text x="760" y="358" class="cell">re-alert interval if not escalating</text>
+
+  <rect x="80" y="382" width="1040" height="60" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="110" y="418" class="cell">RAIL_CONSEC_BELOW_WARN</text>
+  <text x="520" y="418" class="cell">2</text>
+  <text x="760" y="418" class="cell">consecutive low reads required</text>
+
+  <rect x="80" y="442" width="1040" height="60" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="110" y="478" class="cell">Warning pulse</text>
+  <text x="520" y="478" class="cell">80 ms ON / 120 ms OFF</text>
+  <text x="760" y="478" class="cell">RAIL_BUZZ_WARN_ON/GAP</text>
+
+  <rect x="80" y="502" width="1040" height="60" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="110" y="538" class="cell">Critical pulse</text>
+  <text x="520" y="538" class="cell">45 ms ON / 55 ms OFF</text>
+  <text x="760" y="538" class="cell">RAIL_BUZZ_CRIT_ON/GAP</text>
+
+  <text x="80" y="592" class="note">Pins: D5 buzzer, D6 red LED, D8 yellow LED. Values taken from milestone_4c.ino constants block.</text>
+</svg>

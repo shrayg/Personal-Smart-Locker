@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="520" viewBox="0 0 1300 520">
+  <style>
+    .title { font: 700 30px Arial, sans-serif; fill: #222; }
+    .hdr { font: 700 18px Arial, sans-serif; fill: #fff; }
+    .cell { font: 16px Consolas, Arial, sans-serif; fill: #1f2933; }
+    .small { font: 14px Arial, sans-serif; fill: #334155; }
+  </style>
+  <rect x="0" y="0" width="1300" height="520" fill="#ffffff"/>
+  <text x="650" y="46" text-anchor="middle" class="title">Milestone 4C EEPROM Secure Record Map (EE_BASE = 0)</text>
+
+  <rect x="60" y="90" width="1180" height="52" fill="#1f4a75"/>
+  <text x="100" y="123" class="hdr">Offset</text>
+  <text x="270" y="123" class="hdr">Length</text>
+  <text x="420" y="123" class="hdr">Field</text>
+  <text x="730" y="123" class="hdr">Meaning</text>
+
+  <rect x="60" y="142" width="1180" height="56" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="100" y="177" class="cell">+0</text>
+  <text x="270" y="177" class="cell">1 byte</text>
+  <text x="420" y="177" class="cell">SEC_MAGIC0 ('S')</text>
+  <text x="730" y="177" class="cell">secure record marker byte 1</text>
+
+  <rect x="60" y="198" width="1180" height="56" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="100" y="233" class="cell">+1</text>
+  <text x="270" y="233" class="cell">1 byte</text>
+  <text x="420" y="233" class="cell">SEC_MAGIC1 ('H')</text>
+  <text x="730" y="233" class="cell">secure record marker byte 2</text>
+
+  <rect x="60" y="254" width="1180" height="56" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="100" y="289" class="cell">+2</text>
+  <text x="270" y="289" class="cell">1 byte</text>
+  <text x="420" y="289" class="cell">SEC_VERSION</text>
+  <text x="730" y="289" class="cell">record format version (= 1)</text>
+
+  <rect x="60" y="310" width="1180" height="56" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="100" y="345" class="cell">+3</text>
+  <text x="270" y="345" class="cell">1 byte</text>
+  <text x="420" y="345" class="cell">pwLenMeta</text>
+  <text x="730" y="345" class="cell">password length metadata</text>
+
+  <rect x="60" y="366" width="1180" height="56" fill="#eef4fb" stroke="#c6d4e5"/>
+  <text x="100" y="401" class="cell">+4 ... +19</text>
+  <text x="270" y="401" class="cell">16 bytes</text>
+  <text x="420" y="401" class="cell">salt16[]</text>
+  <text x="730" y="401" class="cell">random per-record salt</text>
+
+  <rect x="60" y="422" width="1180" height="56" fill="#ffffff" stroke="#c6d4e5"/>
+  <text x="100" y="457" class="cell">+20 ... +51</text>
+  <text x="270" y="457" class="cell">32 bytes</text>
+  <text x="420" y="457" class="cell">hash32[]</text>
+  <text x="730" y="457" class="cell">SHA-256(salt || password)</text>
+
+  <text x="60" y="500" class="small">Legacy marker: 'A' 'B' (LEGACY_M0/LEGACY_M1). On boot, migrateLegacyPlaintext() upgrades legacy records to this secure format.</text>
+</svg>

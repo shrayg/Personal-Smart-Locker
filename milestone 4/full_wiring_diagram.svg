@@ -23,8 +23,8 @@
 
   <rect width="1400" height="1080" fill="#fafafa"/>
 
-  <text x="700" y="30" class="title" text-anchor="middle">Personal Smart Locker - Full Wiring Diagram (Milestone 4a)</text>
-  <text x="700" y="48" class="subtitle" text-anchor="middle">ATmega328P standalone | keypad ladder | servo current sense | passive buzzer</text>
+  <text x="700" y="30" class="title" text-anchor="middle">Personal Smart Locker - Full Wiring Diagram (Milestone 4)</text>
+  <text x="700" y="48" class="subtitle" text-anchor="middle">ATmega328P | keypad | servo | buzzer D5 | UI LEDs D6-D8 | rail sense A1</text>
 
   <!-- buses -->
   <line x1="250" y1="108" x2="1360" y2="108" class="wire-pwr" stroke-dasharray="6,3"/>
@@ -71,7 +71,7 @@
 
   <!-- MCU -->
   <text x="560" y="236" class="section-label">ATmega328P (DIP-28)</text>
-  <rect x="520" y="255" width="230" height="410" class="chip" rx="8"/>
+  <rect x="520" y="255" width="230" height="450" class="chip" rx="8"/>
   <text x="635" y="286" class="chip-label">ATmega328P</text>
   <circle cx="635" cy="262" r="6" fill="none" stroke="#333"/>
 
@@ -87,6 +87,9 @@
   <line x1="480" y1="478" x2="520" y2="478" class="wire-sig"/><text x="474" y="482" class="pin-left">XTAL1</text>
   <line x1="480" y1="498" x2="520" y2="498" class="wire-sig"/><text x="474" y="502" class="pin-left">XTAL2</text>
   <line x1="480" y1="518" x2="520" y2="518" class="wire-sig"/><text x="474" y="522" class="pin-left">D5</text>
+  <line x1="480" y1="538" x2="520" y2="538" class="wire-sig"/><text x="474" y="542" class="pin-left" fill="#c62828">D6 red</text>
+  <line x1="480" y1="558" x2="520" y2="558" class="wire-sig"/><text x="474" y="562" class="pin-left" fill="#2e7d32">D7 green</text>
+  <line x1="480" y1="578" x2="520" y2="578" class="wire-sig"/><text x="474" y="582" class="pin-left" fill="#f9a825">D8 yellow</text>
 
   <!-- Right pins -->
   <line x1="750" y1="398" x2="810" y2="398" class="wire-sig"/><text x="814" y="402" class="pin-right">A1</text>
@@ -137,6 +140,43 @@
   <line x1="153" y1="544" x2="120" y2="544" class="wire-gnd"/>
   <circle cx="120" cy="544" r="2.5" class="junction"/>
   <line x1="120" y1="430" x2="120" y2="960" class="wire-gnd"/>
+
+  <!-- UI LEDs: D6/D7/D8 -> 220R -> LED -> GND (Milestone 4b/4c) -->
+  <text x="300" y="528" class="section-label">UI LEDs</text>
+  <text x="300" y="544" class="note" font-size="9">220 ohm each, cathodes to GND</text>
+
+  <!-- D6 red -->
+  <path d="M 480 538 L 360 538 L 360 568" class="wire-sig"/>
+  <rect x="330" y="562" width="44" height="14" class="comp" rx="2"/>
+  <text x="352" y="572" class="comp-val" font-size="9">220 R</text>
+  <line x1="360" y1="576" x2="360" y2="592" class="wire-sig"/>
+  <path d="M 360 592 L 352 600 L 368 600 Z" fill="#ffcdd2" stroke="#c62828" stroke-width="1.2"/>
+  <line x1="360" y1="600" x2="360" y2="608" class="wire-sig"/>
+  <line x1="352" y1="608" x2="368" y2="608" class="wire-gnd"/>
+  <line x1="360" y1="608" x2="360" y2="960" class="wire-gnd"/>
+  <text x="385" y="598" class="note" font-size="9">RED</text>
+
+  <!-- D7 green -->
+  <path d="M 480 558 L 340 558 L 340 628" class="wire-sig"/>
+  <rect x="310" y="622" width="44" height="14" class="comp" rx="2"/>
+  <text x="332" y="632" class="comp-val" font-size="9">220 R</text>
+  <line x1="340" y1="636" x2="340" y2="652" class="wire-sig"/>
+  <path d="M 340 652 L 332 660 L 348 660 Z" fill="#c8e6c9" stroke="#2e7d32" stroke-width="1.2"/>
+  <line x1="340" y1="660" x2="340" y2="668" class="wire-sig"/>
+  <line x1="332" y1="668" x2="348" y2="668" class="wire-gnd"/>
+  <line x1="340" y1="668" x2="340" y2="960" class="wire-gnd"/>
+  <text x="365" y="658" class="note" font-size="9">GREEN</text>
+
+  <!-- D8 yellow -->
+  <path d="M 480 578 L 320 578 L 320 688" class="wire-sig"/>
+  <rect x="290" y="682" width="44" height="14" class="comp" rx="2"/>
+  <text x="312" y="692" class="comp-val" font-size="9">220 R</text>
+  <line x1="320" y1="696" x2="320" y2="712" class="wire-sig"/>
+  <path d="M 320 712 L 312 720 L 328 720 Z" fill="#fff9c4" stroke="#f9a825" stroke-width="1.2"/>
+  <line x1="320" y1="720" x2="320" y2="728" class="wire-sig"/>
+  <line x1="312" y1="728" x2="328" y2="728" class="wire-gnd"/>
+  <line x1="320" y1="728" x2="320" y2="960" class="wire-gnd"/>
+  <text x="345" y="718" class="note" font-size="9">YELLOW</text>
 
   <!-- Keypad ladder -->
   <text x="930" y="296" class="section-label">4x3 Keypad (resistor ladder)</text>
@@ -238,6 +278,6 @@
   <!-- bottom summary -->
   <rect x="30" y="990" width="1340" height="72" fill="#f5f5ff" stroke="#aaa" rx="4"/>
   <text x="42" y="1010" class="section-label" font-size="12">Pin Summary</text>
-  <text x="42" y="1028" class="note">D2/D3/D4 = keypad columns, A0 = keypad ladder node, D5 = buzzer, D9 = servo PWM, A1 = servo current sense.</text>
+  <text x="42" y="1028" class="note">D2/D3/D4 = keypad columns, A0 = ladder, D5 = buzzer, D6/D7/D8 = red/green/yellow LEDs + 220 ohm, D9 = servo PWM, A1 = servo sense.</text>
   <text x="42" y="1044" class="note">VCC=pin7, AVCC=pin20, GND=pins8/22, RESET pin1 via 10k pull-up, XTAL pins9/10 with 22pF caps to GND.</text>
 </svg>

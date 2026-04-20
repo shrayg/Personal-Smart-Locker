@@ -20,3 +20,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Local temp (PPT extract / tooling)
+.tmp_ppt_extract/
