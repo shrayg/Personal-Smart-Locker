@@ -1,10 +1,14 @@
 /*
-  milestone_4
+  4.ino
 
   Combines:
     - Milestone 4c secure password storage (salted SHA-256 in EEPROM)
     - Milestone 4d power optimization / measurement helpers
-    - Hardware servo power switch on physical pin 26 of the ATmega328P 
+    - Hardware servo power switch on physical pin 26 of the ATmega328P TQFP
+
+  Important pin note:
+    Physical pin 26 on the ATmega328P TQFP is PC3 / ADC3, which is A3 in Arduino code.
+    This sketch therefore uses SERVO_PWR_PIN = A3 for a direct-drive PMOS servo power switch (no NPN transistor).
 
   Wiring summary:
     Columns: C1->D2, C2->D3, C3->D4
@@ -848,16 +852,16 @@ static bool verifyPassword(const char* s) {
 // -------------------- Servo control --------------------
 static void servoPowerInit() {
   pinMode(SERVO_PWR_PIN, OUTPUT);
-  digitalWrite(SERVO_PWR_PIN, LOW);   // LOW = servo power OFF
+  digitalWrite(SERVO_PWR_PIN, HIGH);  // HIGH = gate tied to source -> PMOS OFF
 }
 
 static void servoPowerOn() {
-  digitalWrite(SERVO_PWR_PIN, HIGH);  // HIGH = NPN on -> PMOS gate low -> servo power ON
+  digitalWrite(SERVO_PWR_PIN, LOW);   // LOW = gate low -> PMOS ON
   delay(SERVO_POWER_SETTLE_MS);
 }
 
 static void servoPowerOff() {
-  digitalWrite(SERVO_PWR_PIN, LOW);
+  digitalWrite(SERVO_PWR_PIN, HIGH);  // HIGH = PMOS OFF
 }
 
 static void servoAttach() {
