@@ -63,6 +63,7 @@ static const uint16_t BUZZ_CRIT_GAP_MS = 55;
 static const unsigned long RAIL_CHECK_INTERVAL_MS = 300000UL;
 static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
 static const uint8_t RAIL_CONSEC_BELOW_WARN       = 2;
+static const uint16_t PRE_SLEEP_ALERT_MS          = 900;
 
 static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
@@ -418,9 +419,9 @@ static void printRailMilliVolts(uint16_t rail_mv) {
   Serial.println(F(" V"));
 }
 
-static void maybeCheckBattery() {
+static void evaluateBatteryRail(bool forceCheck) {
   unsigned long now = millis();
-  if ((unsigned long)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS) return;
+  if (!forceCheck && (unsigned long)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS) return;
   lastRailCheckMs = now;
 
   uint16_t rail = readFiveVRailMilliVoltsAveraged();
@@ -455,6 +456,26 @@ static void maybeCheckBattery() {
     Serial.print(F("POWER LOW - "));
     printRailMilliVolts(rail);
     Serial.println(F("Replace battery or recharge soon. (yellow LED + buzzer)"));
+  }
+}
+
+static void maybeCheckBattery() {
+  evaluateBatteryRail(false);
+}
+
+static void runPreSleepRailAlertIfNeeded() {
+  /* Right before sleep, force a fresh rail evaluation and play one short
+     warning/critical alert burst so low-power state is visible/audible. */
+  evaluateBatteryRail(true);
+  if (railLevel == 0) return;
+
+  buzzerToneOn = false;
+  buzzerNextMs = millis();
+  uint32_t until = millis() + PRE_SLEEP_ALERT_MS;
+  while ((long)(millis() - until) < 0) {
+    serviceBuzzer();
+    runLeds();
+    delay(5);
   }
 }
 
@@ -1031,6 +1052,8 @@ static void enterSleepIfIdle() {
   if ((unsigned long)(now - lastActivityTime) < IDLE_SLEEP_MS) return;
   if ((long)(stayAwakeUntilMs - now) > 0) return;
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) return;
+
+  runPreSleepRailAlertIfNeeded();
 
   wokeFromKeypad = false;
   wokeFromWDT = false;
