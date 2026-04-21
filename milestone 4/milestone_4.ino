@@ -63,7 +63,7 @@ static const uint16_t BUZZ_CRIT_GAP_MS = 55;
 static const unsigned long RAIL_CHECK_INTERVAL_MS = 300000UL;
 static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
 static const uint8_t RAIL_CONSEC_BELOW_WARN       = 2;
-static const uint16_t PRE_SLEEP_ALERT_MS          = 900;
+static const uint16_t PRE_SLEEP_ALERT_MS          = 3000;
 
 static uint32_t lastRailCheckMs = 0;
 static uint32_t lastRailAlertMs = 0;
@@ -71,6 +71,7 @@ static uint8_t railBelowWarnStreak = 0;
 static uint8_t railLevel = 0;
 static uint32_t buzzerNextMs = 0;
 static bool buzzerToneOn = false;
+static bool preSleepAlertPlayed = false;
 
 // -------------------- Keypad --------------------
 const char KEYMAP[4][3] = {
@@ -180,6 +181,7 @@ static void markActivity() {
   lastActivityTime = now;
   uiVisibleUntil = now + UI_HOLD_MS;
   sleepMessagePrinted = false;
+  preSleepAlertPlayed = false;
 }
 
 static void holdAwakeForMs(uint32_t ms) {
@@ -434,6 +436,7 @@ static void evaluateBatteryRail(bool forceCheck) {
       buzzerToneOn = false;
       buzzerStopTone();
     }
+    preSleepAlertPlayed = false;
     return;
   }
 
@@ -468,6 +471,7 @@ static void runPreSleepRailAlertIfNeeded() {
      warning/critical alert burst so low-power state is visible/audible. */
   evaluateBatteryRail(true);
   if (railLevel == 0) return;
+  if (preSleepAlertPlayed) return;
 
   buzzerToneOn = false;
   buzzerNextMs = millis();
@@ -477,6 +481,7 @@ static void runPreSleepRailAlertIfNeeded() {
     runLeds();
     delay(5);
   }
+  preSleepAlertPlayed = true;
 }
 
 static void batteryStatusOnDemand() {
