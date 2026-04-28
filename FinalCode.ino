@@ -7,9 +7,9 @@
 // A0  - Keypad row resistor-ladder analog input and keypad wake input.
 // A1  - Servo current-sense analog input across the 1 ohm sense resistor.
 // D5  - Passive buzzer output driven by tone() at 2 kHz.
-// D6  - Red LED output for locked, critical battery, wrong password, and blocked motor feedback.
+// D6  - Red LED output for locked, critical battery (pre-sleep alert only), wrong password, blocked motor.
 // D7  - Green LED output for unlocked and wake feedback.
-// D8  - Yellow LED output for password-save mode, warning battery, and saved-password feedback.
+// D8  - Yellow LED output for password-save mode, warning battery (pre-sleep alert only), saved-password feedback.
 // D9  - Servo PWM output using Timer1 OC1A.
 // A3  - Servo power-control output for the PMOS high-side switch on PC3 / physical pin 26.
 //
@@ -30,7 +30,7 @@
 // e. Servo blockage detection.
 // f. Standalone ATmega328P hardware support.
 // g. Sleep mode and keypad wake.
-// h. Low battery detection and alert system.
+// h. Low battery: measured before sleep only; buzzer + LED for 3 s if rail is low, then sleep.
 // i. LED and buzzer user interface.
 // j. Battery life optimization and servo power switching.
 
@@ -90,22 +90,8 @@ static const uint16_t BUZZ_WARN_GAP_MS = 120;
 static const uint16_t BUZZ_CRIT_ON_MS  = 45;
 // Keeps the critical tone off for the required critical gap width.
 static const uint16_t BUZZ_CRIT_GAP_MS = 55;
-// Checks the rail often enough to alert during testing instead of waiting several minutes.
-static const unsigned long RAIL_CHECK_INTERVAL_MS = 5000UL;
-// Repeats the audible alert every five minutes while the rail is still low.
-static const unsigned long RAIL_ALERT_REPEAT_MS   = 300000UL;
-// Limits each alert to a short burst so the buzzer does not run forever.
-static const unsigned long RAIL_ALERT_BURST_MS    = 5000UL;
-// Requires consecutive low readings so one noisy ADC sample does not trigger an alert.
-static const uint8_t RAIL_CONSEC_BELOW_WARN       = 2;
-// Stores the last time the rail was measured.
-static uint32_t lastRailCheckMs = 0;
-// Stores the last time a low-battery alert burst was started.
-static uint32_t lastRailAlertMs = 0;
-// Counts consecutive readings below the warning threshold.
-static uint8_t railBelowWarnStreak = 0;
-// Tracks the current battery condition: 0 normal, 1 warning, 2 critical.
-static uint8_t railLevel = 0;
+// Pre-sleep low-battery warning duration (fixed-length; then power-down sleep).
+static const unsigned long RAIL_ALERT_SLEEP_PRE_MS = 3000UL;
 // Tracks the alert level currently being played by the buzzer and alert LED.
 static uint8_t railAlertLevel = 0;
 // Stores when the current low-battery alert burst should stop.
@@ -252,7 +238,7 @@ typedef struct {
 static bool verifyPassword(const char* s);
 static bool cryptoEepromSectionActive(void);
 static bool batteryAlertActive(void);
-static void startBatteryAlert(uint8_t level);
+static void startBatteryAlert(uint8_t level, uint32_t burstMs);
 
 // UTILITY
 // Prints a short state/status message to Serial.
@@ -413,13 +399,12 @@ static void buzzerBeepOnce() {
 static bool batteryAlertActive() {
   return railAlertLevel != 0 && (long)(millis() - railAlertUntilMs) < 0;
 }
-// Starts a finite warning or critical alert burst.
-static void startBatteryAlert(uint8_t level) {
+// Starts a finite warning or critical alert burst (pre-sleep only in this sketch).
+static void startBatteryAlert(uint8_t level, uint32_t burstMs) {
   railAlertLevel = level;
-  railAlertUntilMs = millis() + RAIL_ALERT_BURST_MS;
+  railAlertUntilMs = millis() + burstMs;
   buzzerToneOn = false;
   buzzerNextMs = 0;
-  holdAwakeForMs(RAIL_ALERT_BURST_MS + 500UL);
 }
 // Stops any active low-battery alert burst.
 static void stopBatteryAlert() {
@@ -519,82 +504,19 @@ static void printRailMilliVolts(uint16_t rail_mv) {
   Serial.print((rail_mv % 1000) / 100);
   Serial.println(F(" V"));
 }
-// Applies warning and critical threshold logic to one measured rail value.
-static void handleBatteryReading(uint16_t rail, bool forcePrint) {
-  uint32_t now = millis();
-  uint8_t newLevel = 0;
-  // Classifies the current rail reading using the warning and critical thresholds.
+// Serial-only rail read: no buzzer, no LEDs, no state change (testing / debug).
+static void printRailDiagnostic() {
+  uint16_t rail = readFiveVRailMilliVoltsAveraged();
+  printRailMilliVolts(rail);
   if (rail < RAIL_CRIT_MV) {
-    newLevel = 2;
+    Serial.println(F(" (below critical threshold — pre-sleep would use red LED + fast pattern)"));
   } else if (rail < RAIL_WARN_MV) {
-    newLevel = 1;
+    Serial.println(F(" (below warning threshold — pre-sleep would use yellow LED + slow pattern)"));
   } else if (rail >= RAIL_RECOVER_MV) {
-    newLevel = 0;
+    Serial.println(F(" (OK)"));
   } else {
-    newLevel = railLevel;
+    Serial.println(F(" (between warn/recover — hysteresis band)"));
   }
-  // Clears alerts only after the rail recovers above the hysteresis threshold.
-  if (newLevel == 0) {
-    railBelowWarnStreak = 0;
-    if (railLevel != 0 || forcePrint) {
-      Serial.println(F("Supply OK."));
-      printRailMilliVolts(rail);
-    }
-    railLevel = 0;
-    stopBatteryAlert();
-    return;
-  }
-  // Confirms a new low state with consecutive low readings before alerting.
-  if (railLevel == 0) {
-    if (forcePrint) {
-      railBelowWarnStreak = RAIL_CONSEC_BELOW_WARN;
-    } 
-    else if (railBelowWarnStreak < 255) {
-      railBelowWarnStreak++;
-    }
-    if (railBelowWarnStreak < RAIL_CONSEC_BELOW_WARN) {
-      return;
-    }
-  } 
-  else {
-    railBelowWarnStreak = RAIL_CONSEC_BELOW_WARN;
-  }
-  bool firstLow = (railLevel == 0);
-  bool escalated = (newLevel > railLevel);
-  bool repeatDue = (long)(now - lastRailAlertMs) >= (long)RAIL_ALERT_REPEAT_MS;
-  railLevel = newLevel;
-  // Starts an alert at first detection, on escalation, on manual request, or after the repeat interval.
-  if (firstLow || escalated || repeatDue || forcePrint) {
-    lastRailAlertMs = now;
-    startBatteryAlert(railLevel);
-    Serial.print(F("ALERT: "));
-    if (railLevel >= 2) {
-      Serial.print(F("POWER CRITICAL - "));
-      printRailMilliVolts(rail);
-      Serial.println(F("Battery/source too weak; red LED + buzzer burst."));
-    } else {
-      Serial.print(F("POWER LOW - "));
-      printRailMilliVolts(rail);
-      Serial.println(F("Replace battery or recharge soon; yellow LED + buzzer burst."));
-    }
-  }
-}
-
-// Periodically checks the 5 V rail without blocking the rest of the locker.
-static void maybeCheckBattery() {
-  if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) return;
-  if (cryptoEepromSectionActive()) return;
-  uint32_t now = millis();
-  if (lastRailCheckMs != 0 && (uint32_t)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS) return;
-  lastRailCheckMs = now;
-  uint16_t rail = readFiveVRailMilliVoltsAveraged();
-  handleBatteryReading(rail, false);
-}
-
-// Prints and updates battery status when the user sends the B serial command.
-static void batteryStatusOnDemand() {
-  uint16_t rail = readFiveVRailMilliVoltsAveraged();
-  handleBatteryReading(rail, true);
 }
 
 // KEYPAD SCAN
@@ -1141,10 +1063,31 @@ static void enterSleepIfIdle() {
     return;
   if ((long)(stayAwakeUntilMs - now) > 0) 
     return;
-  if (batteryAlertActive()) 
-    return;
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) 
     return;
+  // Right before sleep: one rail check; if low, fixed 3 s buzzer + LED (no holdAwake — preserves idle timer).
+  {
+    uint16_t rail = readFiveVRailMilliVoltsAveraged();
+    uint8_t preSleepLevel = 0;
+    if (rail < RAIL_CRIT_MV) {
+      preSleepLevel = 2;
+    } 
+    else if (rail < RAIL_WARN_MV) {
+      preSleepLevel = 1;
+    }
+    if (preSleepLevel != 0) {
+      Serial.println(F("Low supply before sleep: 3 s alert, then sleep."));
+      Serial.flush();
+      startBatteryAlert(preSleepLevel, RAIL_ALERT_SLEEP_PRE_MS);
+      uint32_t preSleepEnd = millis() + RAIL_ALERT_SLEEP_PRE_MS;
+      while ((long)(millis() - preSleepEnd) < 0) {
+        serviceBuzzer();
+        runLeds();
+        delay(2);
+      }
+      stopBatteryAlert();
+    }
+  }
   wokeFromKeypad = false;
   wokeFromWDT = false;
   setAllColumnsLowForWake();
@@ -1288,7 +1231,7 @@ void setup() {
   Serial.println(F("  L        : lock"));
   Serial.println(F("  U        : unlock"));
   Serial.println(F("  R        : servo reset pulse"));
-  Serial.println(F("  B        : print 5V rail check"));
+  Serial.println(F("  B        : print 5V rail (Serial only, no buzzer/LED)"));
   Serial.println(F("  P        : beep buzzer once"));
   Serial.println(F("  A        : stay awake for 60 s"));
   Serial.println(F("  X        : run 1 unlock-lock cycle"));
@@ -1301,7 +1244,6 @@ void setup() {
 // Runs the main non-blocking locker state machine.
 void loop() {
   serviceServoMotion();
-  maybeCheckBattery();
   serviceBuzzer();
   runLeds();
   // Leaves input handling alone while the servo is moving and being monitored.
@@ -1481,7 +1423,7 @@ void loop() {
       Serial.println(F("Servo reset pulse sent."));
     }
     else if (c == 'B' || c == 'b') {
-      batteryStatusOnDemand();
+      printRailDiagnostic();
     }
     else if (c == 'P' || c == 'p') {
       buzzerBeepOnce();
