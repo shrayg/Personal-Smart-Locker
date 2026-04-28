@@ -26,3 +26,6 @@ build/
 
 # Cursor IDE chat exports (local only)
 cursor-chat-export*.txt
+
+# Local reference/source material (not tracked)
+references/
