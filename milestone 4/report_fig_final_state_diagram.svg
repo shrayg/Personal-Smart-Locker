@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="1130" viewBox="0 0 1280 1130">
+  <defs>
+    <style>
+      .title { font: 700 22px Arial, Helvetica, sans-serif; fill: #111; }
+      .state { fill: #fff; stroke: #111; stroke-width: 2; }
+      .motion { fill: #f5f5f5; stroke: #111; stroke-width: 2; stroke-dasharray: 7 5; }
+      .stateText { font: 700 14px Arial, Helvetica, sans-serif; fill: #111; text-anchor: middle; dominant-baseline: middle; }
+      .edge { fill: none; stroke: #222; stroke-width: 2; marker-end: url(#ah); }
+      .numPad { fill: #fafafa; }
+      .numBg { fill: #c62828; stroke: #fff; stroke-width: 2; }
+      .numTxt { font: 700 11px Arial, Helvetica, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+      .numTxt10 { font: 700 10px Arial, Helvetica, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+      .tblTitle { font: 700 16px Arial, Helvetica, sans-serif; fill: #111; }
+      .tblHead { font: 700 14px Arial, Helvetica, sans-serif; fill: #222; }
+      .tblCell { font: 13px Arial, Helvetica, sans-serif; fill: #222; }
+      .tblNum { font: 700 14px Arial, Helvetica, sans-serif; fill: #7a0000; }
+    </style>
+    <marker id="ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0,0 9,3.5 0,7" fill="#222"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="1130" fill="#fafafa"/>
+  <text x="640" y="32" class="title" text-anchor="middle">Personal Smart Locker — Lock State Diagram</text>
+
+  <!-- States -->
+  <ellipse cx="320" cy="320" rx="100" ry="42" class="state"/>
+  <text x="320" y="324" class="stateText">Locked</text>
+
+  <ellipse cx="640" cy="150" rx="100" ry="38" class="motion"/>
+  <text x="640" y="154" class="stateText">Unlocking</text>
+
+  <ellipse cx="960" cy="320" rx="100" ry="42" class="state"/>
+  <text x="960" y="324" class="stateText">Unlocked</text>
+
+  <ellipse cx="640" cy="490" rx="95" ry="38" class="motion"/>
+  <text x="640" y="494" class="stateText">Locking</text>
+
+  <ellipse cx="640" cy="630" rx="140" ry="44" class="state"/>
+  <text x="640" y="634" class="stateText">Save password</text>
+
+  <!-- Edges (geometry-aligned to ellipse boundaries) -->
+  <!-- 1: Locked top-right -> Unlocking lower-left (high outer arc) -->
+  <path d="M 384.3,287.8 C 450,210 530,90 546.0,137.0" class="edge"/>
+  <!-- 3: Unlocking lower-right -> Locked top-left (lower arc, mirrored) -->
+  <path d="M 569.3,123.1 C 480,260 380,290 285.8,280.5" class="edge"/>
+  <!-- 2: Unlocking right -> Unlocked top-left -->
+  <path d="M 710.7,123.1 C 760,50 940,80 895.7,287.8" class="edge"/>
+  <!-- 4: Unlocked left -> Locking right (inner-left corridor) -->
+  <path d="M 861.5,327.3 C 820,360 740,420 726.1,473.9" class="edge"/>
+  <!-- 6: Locking right -> Unlocked left (outer corridor — sweeps further right then up) -->
+  <path d="M 726.1,506.1 C 820,540 920,420 863.4,309.1" class="edge"/>
+  <!-- 5: Locking left -> Locked right -->
+  <path d="M 557.7,471.0 C 490,500 380,420 396.6,347.0" class="edge"/>
+  <!-- 7: Locked bottom-left -> Save top-left (FAR-LEFT corridor) -->
+  <path d="M 249.3,349.7 C 170,560 340,640 513.1,611.4" class="edge"/>
+  <!-- 9: Save top -> Locked bottom-right (INNER corridor; clearly separate from 7) -->
+  <path d="M 508.4,645.0 C 480,560 340,440 337.4,361.4" class="edge"/>
+  <!-- 8: Unlocked bottom-right -> Save top-right (FAR-RIGHT corridor) -->
+  <path d="M 1030.7,349.7 C 1110,560 940,640 766.9,611.4" class="edge"/>
+  <!-- 10: Save top -> Unlocked bottom-left (INNER corridor) -->
+  <path d="M 771.6,645.0 C 800,560 940,440 942.6,361.4" class="edge"/>
+  <!-- 11: Self-loop on Locked (upper-left) -->
+  <path d="M 223.4,330.9 C 170,320 170,290 226.0,305.6" class="edge"/>
+  <!-- 12: Self-loop on Locked (lower-left) -->
+  <path d="M 229.4,341.4 C 170,360 170,395 233.4,355.0" class="edge"/>
+
+  <!-- Markers (white pad + red disc; placed at curve t=0.5 midpoints) -->
+  <g transform="translate(483.8,165.6)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">1</text></g>
+  <g transform="translate(429.4,256.7)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">3</text></g>
+  <g transform="translate(838.3,100.1)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">2</text></g>
+  <g transform="translate(783.5,392.7)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">4</text></g>
+  <g transform="translate(851.2,461.9)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">6</text></g>
+  <g transform="translate(445.5,447.2)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">5</text></g>
+  <g transform="translate(286.6,570.1)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">7</text></g>
+  <g transform="translate(413.2,500.8)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">9</text></g>
+  <g transform="translate(993.4,570.1)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">8</text></g>
+  <g transform="translate(866.8,500.8)"><circle r="15" class="numPad"/><circle r="12" class="numBg"/><text class="numTxt10">10</text></g>
+  <g transform="translate(189,316)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">11</text></g>
+  <g transform="translate(189,365)"><circle r="14" class="numPad"/><circle r="11" class="numBg"/><text class="numTxt">12</text></g>
+
+  <!-- Transition key (12 rows) -->
+  <g transform="translate(40,720)">
+    <text x="600" y="0" class="tblTitle" text-anchor="middle">Transition key</text>
+    <rect x="0" y="14" width="1200" height="32" fill="#e8e8e8" stroke="#999" stroke-width="1"/>
+    <text x="36" y="35" class="tblHead" text-anchor="middle">#</text>
+    <text x="72" y="35" class="tblHead" text-anchor="start">Description</text>
+
+    <g><rect x="0" y="46" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="64" class="tblNum" text-anchor="middle">1</text><text x="72" y="64" class="tblCell">Locked → Unlocking — correct 4-digit code then #, or Serial U while Locked</text></g>
+    <g><rect x="0" y="74" width="1200" height="28" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="92" class="tblNum" text-anchor="middle">2</text><text x="72" y="92" class="tblCell">Unlocking → Unlocked — motion completes (timeout) without sustained servo block</text></g>
+    <g><rect x="0" y="102" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="120" class="tblNum" text-anchor="middle">3</text><text x="72" y="120" class="tblCell">Unlocking → Locked — blocked while unlocking; revert to Locked</text></g>
+    <g><rect x="0" y="130" width="1200" height="28" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="148" class="tblNum" text-anchor="middle">4</text><text x="72" y="148" class="tblCell">Unlocked → Locking — * on keypad, or Serial L while Unlocked</text></g>
+    <g><rect x="0" y="158" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="176" class="tblNum" text-anchor="middle">5</text><text x="72" y="176" class="tblCell">Locking → Locked — motion completes to Locked</text></g>
+    <g><rect x="0" y="186" width="1200" height="28" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="204" class="tblNum" text-anchor="middle">6</text><text x="72" y="204" class="tblCell">Locking → Unlocked — blocked while locking; revert to Unlocked</text></g>
+    <g><rect x="0" y="214" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="232" class="tblNum" text-anchor="middle">7</text><text x="72" y="232" class="tblCell">Locked → Save password — five # sequence (locked counter) enters save mode</text></g>
+    <g><rect x="0" y="242" width="1200" height="28" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="260" class="tblNum" text-anchor="middle">8</text><text x="72" y="260" class="tblCell">Unlocked → Save password — five # sequence (unlocked counter) enters save mode</text></g>
+    <g><rect x="0" y="270" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="288" class="tblNum" text-anchor="middle">9</text><text x="72" y="288" class="tblCell">Save password → Locked — * cancels; or 4 new digits + # after successful save (from Locked)</text></g>
+    <g><rect x="0" y="298" width="1200" height="32" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="318" class="tblNum" text-anchor="middle">10</text><text x="72" y="318" class="tblCell">Save password → Unlocked — same exits when save mode was entered from Unlocked</text></g>
+    <g><rect x="0" y="330" width="1200" height="28" fill="#fff" stroke="#ccc" stroke-width="1"/><text x="36" y="348" class="tblNum" text-anchor="middle">11</text><text x="72" y="348" class="tblCell">Stay in Locked — digit keys fill buffer (before submit with #)</text></g>
+    <g><rect x="0" y="358" width="1200" height="28" fill="#f7f7f7" stroke="#ccc" stroke-width="1"/><text x="36" y="376" class="tblNum" text-anchor="middle">12</text><text x="72" y="376" class="tblCell">Stay in Locked — wrong code after 4 digits + # (wrong-password indication)</text></g>
+  </g>
+</svg>
