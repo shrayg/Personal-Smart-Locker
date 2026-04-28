@@ -7,9 +7,9 @@
 // A0  - Keypad row resistor-ladder analog input and keypad wake input.
 // A1  - Servo current-sense analog input across the 1 ohm sense resistor.
 // D5  - Passive buzzer output driven by tone() at 2 kHz.
-// D6  - Red LED output for locked, critical battery (pre-sleep alert only), wrong password, blocked motor.
-// D7  - Green LED output for unlocked and wake feedback.
-// D8  - Yellow LED output for password-save mode, warning battery (pre-sleep alert only), saved-password feedback.
+// D6  - Red LED output for locked, wrong password, and blocked motor.
+// D7  - Green LED output for unlocked, wake feedback, and low-battery before-sleep alert with D8.
+// D8  - Yellow LED output for password-save mode, low-battery before-sleep alert with D7, and saved-password feedback.
 // D9  - Servo PWM output using Timer1 OC1A.
 // A3  - Servo power-control output for the PMOS high-side switch on PC3 / physical pin 26.
 //
@@ -30,7 +30,7 @@
 // e. Servo blockage detection.
 // f. Standalone ATmega328P hardware support.
 // g. Sleep mode and keypad wake.
-// h. Low battery: measured before sleep only; buzzer + LED for 3 s if rail is low, then sleep.
+// h. Low battery: measured before sleep only; one 3 s buzzer + green/yellow LED alert if rail is low, then sleep.
 // i. LED and buzzer user interface.
 // j. Battery life optimization and servo power switching.
 
@@ -45,33 +45,33 @@
 // Sets the inactivity time before the locker enters power-down sleep.
 static const unsigned long IDLE_SLEEP_MS = 5000UL;
 // Sets how long normal state LEDs stay visible after user activity.
-static const unsigned long UI_HOLD_MS    = 2500UL;
+static const unsigned long UI_HOLD_MS = 2500UL;
 // Sets the Serial command awake-hold duration for testing and measurements.
 static const unsigned long AWAKE_HOLD_MS = 60000UL;
-// Enables watchdog wake so the firmware can periodically recover from sleep.
-static const bool USE_WDT_WAKE           = true;
+// Keeps watchdog wake off so low-battery sleep cannot wake itself and repeat the alert.
+static const bool USE_WDT_WAKE = false;
 // Selects servo power polarity: true for direct PMOS gate, false for an NPN-inverted PMOS driver.
-static const bool SERVO_PWR_ACTIVE_LOW   = true;
+static const bool SERVO_PWR_ACTIVE_LOW = true;
 
 // PINS
-// Stores the three keypad column pins scanned by the firmware.
-const uint8_t COL_PINS[3]      = {2, 3, 4};
+// Stores the three keypad column pins scanned by the code.
+const uint8_t COL_PINS[3] = {2, 3, 4};
 // Reads the keypad resistor-ladder voltage and wake key activity.
-const uint8_t ROW_ANALOG_PIN   = A0;
+const uint8_t ROW_ANALOG_PIN = A0;
 // Reads the voltage across the servo current-sense resistor.
-const uint8_t SERVO_SENSE_PIN  = A1;
+const uint8_t SERVO_SENSE_PIN = A1;
 // Drives the passive buzzer output.
-const uint8_t BUZZER_PIN       = 5;
+const uint8_t BUZZER_PIN = 5;
 // Drives the red status LED.
-const uint8_t redPin           = 6;
+const uint8_t redPin = 6;
 // Drives the green status LED.
-const uint8_t greenPin         = 7;
+const uint8_t greenPin = 7;
 // Drives the yellow status LED.
-const uint8_t yellowPin        = 8;
+const uint8_t yellowPin = 8;
 // Outputs the Timer1 servo PWM signal.
-const uint8_t SERVO_PIN        = 9;
+const uint8_t SERVO_PIN = 9;
 // Controls servo power through the PMOS switch on PC3 / ADC3 / physical pin 26.
-const uint8_t SERVO_PWR_PIN    = A3;
+const uint8_t SERVO_PWR_PIN = A3;
 
 // BATTERY / BUZZER
 // Sets the alert tone frequency used for warning and critical battery bursts.
@@ -83,15 +83,19 @@ static const uint16_t RAIL_CRIT_MV = 4400;
 // Clears a low-battery state only after the rail rises above this recovery point.
 static const uint16_t RAIL_RECOVER_MV = 4750;
 // Keeps the warning tone on for the required warning pulse width.
-static const uint16_t BUZZ_WARN_ON_MS  = 80;
+static const uint16_t BUZZ_WARN_ON_MS = 80;
 // Keeps the warning tone off for the required warning gap width.
 static const uint16_t BUZZ_WARN_GAP_MS = 120;
 // Keeps the critical tone on for the required critical pulse width.
-static const uint16_t BUZZ_CRIT_ON_MS  = 45;
+static const uint16_t BUZZ_CRIT_ON_MS = 45;
 // Keeps the critical tone off for the required critical gap width.
 static const uint16_t BUZZ_CRIT_GAP_MS = 55;
 // Pre-sleep low-battery warning duration (fixed-length; then power-down sleep).
 static const unsigned long RAIL_ALERT_SLEEP_PRE_MS = 3000UL;
+// Checks the 5 V rail often enough that the warning is visible during bench testing.
+static const unsigned long RAIL_CHECK_INTERVAL_MS = 1000UL;
+// Requires two low readings in a row so one noisy ADC sample doesnt trigger the warning.
+static const uint8_t RAIL_CONSEC_BELOW_WARN = 2;
 // Tracks the alert level currently being played by the buzzer and alert LED.
 static uint8_t railAlertLevel = 0;
 // Stores when the current low-battery alert burst should stop.
@@ -100,8 +104,16 @@ static uint32_t railAlertUntilMs = 0;
 static uint32_t buzzerNextMs = 0;
 // Tracks whether the buzzer tone is currently on during an alert burst.
 static bool buzzerToneOn = false;
-// Prevents repeating the pre-sleep 3 s rail alert on watchdog-only wake loops.
-static bool preSleepAlertPlayed = false;
+// Remembers that the user already got the low-battery alert until the rail recovers.
+static bool railLowAlertLatched = false;
+// Stores the last time the software checked the 5 V rail.
+static uint32_t lastRailCheckMs = 0;
+// Counts consecutive rail readings below the warning threshold.
+static uint8_t railBelowWarnStreak = 0;
+// Stores the most recent rail reading for Serial debug.
+static uint16_t lastRailReadingMv = 0;
+// Stores the most recent low-battery classification for Serial debug.
+static uint8_t lastRailLevelSeen = 0;
 
 // KEYPAD
 // Maps detected row and column indices to keypad characters.
@@ -122,7 +134,7 @@ const int TH_ROW3_MAX = 863;
 // Requires this many stable scans before accepting a key.
 const uint8_t DEBOUNCE_SCANS = 5;
 // Requires this many no-key scans before accepting another key.
-const uint8_t RELEASE_SCANS  = 5;
+const uint8_t RELEASE_SCANS = 5;
 
 // PASSWORD/EEPROM
 // Limits password storage to the EEPROM record size used by this sketch.
@@ -182,19 +194,19 @@ static uint8_t lockedHashCount = 0;
 // Sets the 20 ms servo frame period used for 50 Hz control.
 static const uint16_t PERIOD = 20000;
 // Sets the reset/default servo pulse width in microseconds.
-static const uint16_t RESET  = 1500;
+static const uint16_t RESET = 1500;
 // Sets the locked servo pulse width in microseconds.
-static const uint16_t LOCK   = 1500;
+static const uint16_t LOCK = 1500;
 // Sets the unlocked servo pulse width in microseconds.
 static const uint16_t UNLOCK = 2470;
 // Sets the ADC current-sense threshold for blocked-servo detection.
 static const uint16_t BLOCK_ADC_THRESHOLD = 70;
 // Ignores the normal startup current spike for this motion window.
-static const uint16_t MOVE_GRACE_MS       = 250;
+static const uint16_t MOVE_GRACE_MS = 250;
 // Requires high current for this long before declaring blockage.
-static const uint16_t BLOCK_CONFIRM_MS    = 80;
+static const uint16_t BLOCK_CONFIRM_MS = 80;
 // Ends normal servo motion after this timeout.
-static const uint16_t MOVE_TIMEOUT_MS     = 700;
+static const uint16_t MOVE_TIMEOUT_MS = 700;
 // Waits after servo power turns on before PWM movement starts.
 static const uint16_t SERVO_POWER_SETTLE_MS = 50;
 // Stores the time when the current servo motion began.
@@ -206,9 +218,9 @@ static bool servoAttached = false;
 // Stores the last measured unlock movement time.
 static uint32_t lastUnlockMoveMs = 0;
 // Stores the last measured lock movement time.
-static uint32_t lastLockMoveMs   = 0;
+static uint32_t lastLockMoveMs = 0;
 // Stores the last complete unlock-lock cycle time.
-static uint32_t lastCycleMs      = 0;
+static uint32_t lastCycleMs = 0;
 
 // SLEEP/UI
 // Stores the last time keypad or Serial activity happened.
@@ -241,6 +253,9 @@ static bool verifyPassword(const char* s);
 static bool cryptoEepromSectionActive(void);
 static bool batteryAlertActive(void);
 static void startBatteryAlert(uint8_t level, uint32_t burstMs);
+static void enterSleepNow(void);
+static uint8_t classifyRailLevel(uint16_t railMv);
+static void maybeCheckBatteryAndSleep(void);
 
 // UTILITY
 // Prints a short state/status message to Serial.
@@ -253,7 +268,6 @@ static void markActivity() {
   lastActivityTime = now;
   uiVisibleUntil = now + UI_HOLD_MS;
   sleepMessagePrinted = false;
-  preSleepAlertPlayed = false;
 }
 // Keeps the controller awake for a requested window.
 static void holdAwakeForMs(uint32_t ms) {
@@ -262,7 +276,6 @@ static void holdAwakeForMs(uint32_t ms) {
   lastActivityTime = now;
   uiVisibleUntil = now + UI_HOLD_MS;
   sleepMessagePrinted = false;
-  preSleepAlertPlayed = false;
 }
 // Clears the keypad password entry buffer.
 static void clearEntered() {
@@ -359,11 +372,8 @@ static void runLeds() {
     return;
   }
   if (batteryAlertActive()) {
-    if (railAlertLevel >= 2) {
-      setLeds(buzzerToneOn, false, false);
-    } else {
-      setLeds(false, false, buzzerToneOn);
-    }
+    // Flashes green and yellow together during low-battery warning and critical bursts.
+    setLeds(false, buzzerToneOn, buzzerToneOn);
     return;
   }
   if ((long)(now - uiVisibleUntil) > 0) {
@@ -403,7 +413,7 @@ static void buzzerBeepOnce() {
 static bool batteryAlertActive() {
   return railAlertLevel != 0 && (long)(millis() - railAlertUntilMs) < 0;
 }
-// Starts a finite warning or critical alert burst (pre-sleep only in this sketch).
+// Starts a finite warning or critical alert burst (before-sleep only in this sketch).
 static void startBatteryAlert(uint8_t level, uint32_t burstMs) {
   railAlertLevel = level;
   railAlertUntilMs = millis() + burstMs;
@@ -439,8 +449,10 @@ static void serviceBuzzer() {
     else {
       buzzerNextMs = now + (buzzerToneOn ? BUZZ_WARN_ON_MS : BUZZ_WARN_GAP_MS);
     }
-    if (buzzerToneOn) buzzerPlayTone();
-    else buzzerStopTone();
+    if (buzzerToneOn)
+      buzzerPlayTone();
+    else
+      buzzerStopTone();
   }
 }
 // Releases all keypad columns so only the selected scan column is driven.
@@ -480,15 +492,18 @@ static uint16_t readAvccMilliVolts() {
   delayMicroseconds(250);
   // Discards the first conversion after changing the ADC mux for better stability.
   ADCSRA |= _BV(ADSC);
-  while (ADCSRA & _BV(ADSC)) {}
+  while (ADCSRA & _BV(ADSC)) {
+  }
   // Uses the second conversion for the actual rail estimate.
   ADCSRA |= _BV(ADSC);
-  while (ADCSRA & _BV(ADSC)) {}
+  while (ADCSRA & _BV(ADSC)) {
+  }
 
   uint8_t low = ADCL;
   uint8_t high = ADCH;
   uint32_t adc = ((uint32_t)high << 8) | low;
-  if (adc == 0) return 5000;
+  if (adc == 0)
+    return 5000;
   return (uint16_t)(1125300UL / adc);
 }
 // Averages four AVcc estimates before threshold comparison.
@@ -513,23 +528,96 @@ static void printRailDiagnostic() {
   uint16_t rail = readFiveVRailMilliVoltsAveraged();
   printRailMilliVolts(rail);
   if (rail < RAIL_CRIT_MV) {
-    Serial.println(F(" (below critical threshold — pre-sleep would use red LED + fast pattern)"));
-  } else if (rail < RAIL_WARN_MV) {
-    Serial.println(F(" (below warning threshold — pre-sleep would use yellow LED + slow pattern)"));
-  } else if (rail >= RAIL_RECOVER_MV) {
+    Serial.println(F(" (below critical threshold — before-sleep would use green/yellow LED + fast pattern)"));
+  }
+  else if (rail < RAIL_WARN_MV) {
+    Serial.println(F(" (below warning threshold — before-sleep would use green/yellow LED + slow pattern)"));
+  }
+  else if (rail >= RAIL_RECOVER_MV) {
     Serial.println(F(" (OK)"));
-  } else {
+  }
+  else {
     Serial.println(F(" (between warn/recover — hysteresis band)"));
   }
+}
+
+// Converts a rail voltage reading into OK, warning, or critical.
+static uint8_t classifyRailLevel(uint16_t railMv) {
+  if (railMv < RAIL_CRIT_MV)
+    return 2;
+  if (railMv < RAIL_WARN_MV)
+    return 1;
+  return 0;
+}
+// Runs the green/yellow low-battery pattern for exactly 3 seconds.
+static void runBatteryAlertBurst(uint8_t level) {
+  startBatteryAlert(level, RAIL_ALERT_SLEEP_PRE_MS);
+  uint32_t alertEnd = millis() + RAIL_ALERT_SLEEP_PRE_MS;
+  while ((long)(millis() - alertEnd) < 0) {
+    serviceBuzzer();
+    runLeds();
+    delay(2);
+  }
+  stopBatteryAlert();
+  setLeds(false, false, false);
+}
+// Checks the rail during normal operation and sleeps after one low-battery warning.
+static void maybeCheckBatteryAndSleep() {
+  if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING)
+    return;
+  if (lockState == STATE_SAVE_PASSWORD)
+    return;
+  if (cryptoEepromSectionActive() || batteryAlertActive())
+    return;
+  uint32_t now = millis();
+  if ((unsigned long)(now - lastRailCheckMs) < RAIL_CHECK_INTERVAL_MS)
+    return;
+  lastRailCheckMs = now;
+
+  uint16_t rail = readFiveVRailMilliVoltsAveraged();
+  uint8_t level = classifyRailLevel(rail);
+  lastRailReadingMv = rail;
+  lastRailLevelSeen = level;
+
+  // Re-arms the one-shot warning only after the supply recovers above the recovery threshold.
+  if (rail >= RAIL_RECOVER_MV) {
+    railLowAlertLatched = false;
+    railBelowWarnStreak = 0;
+    return;
+  }
+
+  // Waits for repeated low readings before warning the user.
+  if (level == 0) {
+    railBelowWarnStreak = 0;
+    return;
+  }
+  if (railBelowWarnStreak < 255)
+    railBelowWarnStreak++;
+  if (railBelowWarnStreak < RAIL_CONSEC_BELOW_WARN)
+    return;
+  if (railLowAlertLatched)
+    return;
+
+  // Alerts once with green/yellow, then enters sleep so it cannot keep flashing forever.
+  railLowAlertLatched = true;
+  Serial.println(F("Low supply detected: 3 s green/yellow alert, then sleep."));
+  printRailMilliVolts(rail);
+  Serial.flush();
+  runBatteryAlertBurst(level);
+  enterSleepNow();
 }
 
 // KEYPAD SCAN
 // Converts a keypad ADC value into a row index.
 static int adcToRow(int adc) {
-  if (adc < TH_ROW0_MAX) return 0;
-  if (adc < TH_ROW1_MAX) return 1;
-  if (adc < TH_ROW2_MAX) return 2;
-  if (adc < TH_ROW3_MAX) return 3;
+  if (adc < TH_ROW0_MAX)
+    return 0;
+  if (adc < TH_ROW1_MAX)
+    return 1;
+  if (adc < TH_ROW2_MAX)
+    return 2;
+  if (adc < TH_ROW3_MAX)
+    return 3;
   return -1;
 }
 // Scans keypad columns once and returns the raw key if one is pressed.
@@ -541,7 +629,8 @@ static char scanKeyRaw() {
     delayMicroseconds(80);
     int adc = readAnalogAveraged(4);
     int row = adcToRow(adc);
-    if (row >= 0) return KEYMAP[row][col];
+    if (row >= 0)
+      return KEYMAP[row][col];
   }
   return 0;
 }
@@ -554,7 +643,8 @@ static char getKeyEvent() {
   char raw = scanKeyRaw();
   if (waitingForRelease) {
     if (raw == 0) {
-      if (releaseCount < 255) releaseCount++;
+      if (releaseCount < 255)
+        releaseCount++;
       if (releaseCount >= RELEASE_SCANS) {
         waitingForRelease = false;
         candidate = 0;
@@ -573,7 +663,8 @@ static char getKeyEvent() {
     return 0;
   }
   if (raw == candidate) {
-    if (stableCount < 255) stableCount++;
+    if (stableCount < 255)
+      stableCount++;
   } 
   else {
     candidate = raw;
@@ -688,11 +779,13 @@ static void sha256_final(Sha256Ctx* ctx, uint8_t* hash) {
 
   if (ctx->datalen < 56) {
     ctx->data[i++] = 0x80;
-    while (i < 56) ctx->data[i++] = 0;
+    while (i < 56)
+      ctx->data[i++] = 0;
   } 
   else {
     ctx->data[i++] = 0x80;
-    while (i < 64) ctx->data[i++] = 0;
+    while (i < 64)
+      ctx->data[i++] = 0;
     sha256_transform(ctx, ctx->data);
     memset(ctx->data, 0, 56);
   }
@@ -707,9 +800,9 @@ static void sha256_final(Sha256Ctx* ctx, uint8_t* hash) {
   ctx->data[63] = (uint8_t)(ctx->bitlen);
   sha256_transform(ctx, ctx->data);
   for (i = 0; i < 4; i++) {
-    hash[i]      = (uint8_t)((ctx->state[0] >> (24 - i * 8)) & 0xff);
-    hash[i + 4]  = (uint8_t)((ctx->state[1] >> (24 - i * 8)) & 0xff);
-    hash[i + 8]  = (uint8_t)((ctx->state[2] >> (24 - i * 8)) & 0xff);
+    hash[i] = (uint8_t)((ctx->state[0] >> (24 - i * 8)) & 0xff);
+    hash[i + 4] = (uint8_t)((ctx->state[1] >> (24 - i * 8)) & 0xff);
+    hash[i + 8] = (uint8_t)((ctx->state[2] >> (24 - i * 8)) & 0xff);
     hash[i + 12] = (uint8_t)((ctx->state[3] >> (24 - i * 8)) & 0xff);
     hash[i + 16] = (uint8_t)((ctx->state[4] >> (24 - i * 8)) & 0xff);
     hash[i + 20] = (uint8_t)((ctx->state[5] >> (24 - i * 8)) & 0xff);
@@ -738,7 +831,8 @@ static void beginCryptoEepromSection() {
 }
 // Ends a quiet section for hashing and EEPROM writes.
 static void endCryptoEepromSection() {
-  if (cryptoEepromHold > 0) cryptoEepromHold--;
+  if (cryptoEepromHold > 0)
+    cryptoEepromHold--;
 }
 // Reports whether hashing or EEPROM writing is currently active.
 static bool cryptoEepromSectionActive() {
@@ -746,14 +840,16 @@ static bool cryptoEepromSectionActive() {
 }
 // Reads one byte directly from EEPROM.
 static uint8_t eeRead(uint16_t a) {
-  while (EECR & (1 << EEPE)) {}
+  while (EECR & (1 << EEPE)) {
+  }
   EEAR = a;
   EECR |= (1 << EERE);
   return EEDR;
 }
 // Writes one byte directly to EEPROM using the required timed sequence.
 static void eeWrite(uint16_t a, uint8_t v) {
-  while (EECR & (1 << EEPE)) {}
+  while (EECR & (1 << EEPE)) {
+  }
   uint8_t s = SREG;
   cli();
   EEAR = a;
@@ -807,11 +903,13 @@ static void writeSecureRecordCore(const uint8_t* salt16, const uint8_t* hash32, 
   eeWrite(EE_BASE + 3, pwLenMeta);
   for (uint8_t i = 0; i < 16; i++) {
     eeWrite(EE_BASE + 4 + i, salt16[i]);
-    if ((i & 3) == 3) delay(5);
+    if ((i & 3) == 3)
+      delay(5);
   }
   for (uint8_t i = 0; i < 32; i++) {
     eeWrite(EE_BASE + 20 + i, hash32[i]);
-    if ((i & 3) == 3) delay(5);
+    if ((i & 3) == 3)
+      delay(5);
   }
   delay(12);
   eeWrite(EE_BASE + 0, SEC_MAGIC0);
@@ -820,7 +918,8 @@ static void writeSecureRecordCore(const uint8_t* salt16, const uint8_t* hash32, 
 }
 // Saves a salted password hash into EEPROM.
 static bool savePasswordHash(const uint8_t* p, uint8_t n) {
-  if (n == 0 || n > maxLength) return false;
+  if (n == 0 || n > maxLength)
+    return false;
   beginCryptoEepromSection();
   generateSalt16(storedSalt);
   uint8_t h[32];
@@ -862,12 +961,15 @@ static bool migrateLegacyPlaintext() {
 // Loads the secure password record or migrates an older record.
 static bool loadStoredPassword() {
   if (eeRead(EE_BASE + 0) == SEC_MAGIC0 && eeRead(EE_BASE + 1) == SEC_MAGIC1 && eeRead(EE_BASE + 2) == SEC_VERSION) {
-    for (uint8_t i = 0; i < 16; i++) storedSalt[i] = eeRead(EE_BASE + 4 + i);
-    for (uint8_t i = 0; i < 32; i++) storedHash[i] = eeRead(EE_BASE + 20 + i);
+    for (uint8_t i = 0; i < 16; i++)
+      storedSalt[i] = eeRead(EE_BASE + 4 + i);
+    for (uint8_t i = 0; i < 32; i++)
+      storedHash[i] = eeRead(EE_BASE + 20 + i);
     hasStoredPassword = true;
     return true;
   }
-  if (migrateLegacyPlaintext()) return true;
+  if (migrateLegacyPlaintext())
+    return true;
   hasStoredPassword = false;
   return false;
 }
@@ -993,7 +1095,8 @@ static void finishServoMotionBlocked() {
 }
 // Monitors servo current and finishes motion states without blocking.
 static void serviceServoMotion() {
-  if (lockState != STATE_LOCKING && lockState != STATE_UNLOCKING) return;
+  if (lockState != STATE_LOCKING && lockState != STATE_UNLOCKING)
+    return;
   uint32_t now = millis();
   int sense = readServoSenseAveraged(8);
   if ((uint32_t)(now - motionStartTime) >= MOVE_GRACE_MS) {
@@ -1060,45 +1163,8 @@ static inline void enterPowerDownSleepRaw() {
   asm volatile("sleep" ::: "memory");
   SMCR &= (uint8_t)~_BV(SE);
 }
-// Enters sleep after inactivity when no critical task is active.
-static void enterSleepIfIdle() {
-  uint32_t now = millis();
-  if ((unsigned long)(now - lastActivityTime) < IDLE_SLEEP_MS) 
-    return;
-  if ((long)(stayAwakeUntilMs - now) > 0) 
-    return;
-  if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) 
-    return;
-  // Right before sleep: one rail check; if low, fixed 3 s buzzer + LED (no holdAwake — preserves idle timer).
-  // Gate it so watchdog-only wake cycles do not replay the burst indefinitely.
-  {
-    uint16_t rail = readFiveVRailMilliVoltsAveraged();
-    uint8_t preSleepLevel = 0;
-    if (rail < RAIL_CRIT_MV) {
-      preSleepLevel = 2;
-    } 
-    else if (rail < RAIL_WARN_MV) {
-      preSleepLevel = 1;
-    }
-    if (preSleepLevel != 0 && !preSleepAlertPlayed) {
-      // Reduce concurrent load during alert burst.
-      servoDetach();
-      servoPowerOff();
-      ledEvent = LED_EVENT_NONE;
-      Serial.println(F("Low supply before sleep: 3 s alert, then sleep."));
-      Serial.flush();
-      startBatteryAlert(preSleepLevel, RAIL_ALERT_SLEEP_PRE_MS);
-      uint32_t preSleepEnd = millis() + RAIL_ALERT_SLEEP_PRE_MS;
-      while ((long)(millis() - preSleepEnd) < 0) {
-        serviceBuzzer();
-        runLeds();
-        delay(2);
-      }
-      stopBatteryAlert();
-      preSleepAlertPlayed = true;
-    }
-    if (preSleepLevel == 0) preSleepAlertPlayed = false;
-  }
+// Enters power-down sleep without running another battery check.
+static void enterSleepNow() {
   wokeFromKeypad = false;
   wokeFromWDT = false;
   setAllColumnsLowForWake();
@@ -1135,7 +1201,41 @@ static void enterSleepIfIdle() {
     startLedEvent(LED_EVENT_WAKE);
   }
 }
+// Enters sleep after inactivity when no critical task is active.
+static void enterSleepIfIdle() {
+  uint32_t now = millis();
+  if ((unsigned long)(now - lastActivityTime) < IDLE_SLEEP_MS) 
+    return;
+  if ((long)(stayAwakeUntilMs - now) > 0) 
+    return;
+  if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) 
+    return;
+  if (lockState == STATE_SAVE_PASSWORD)
+    return;
 
+  // Checks once right before sleep in case the periodic check hasnt run yet.
+  uint16_t rail = readFiveVRailMilliVoltsAveraged();
+  uint8_t preSleepLevel = classifyRailLevel(rail);
+  lastRailReadingMv = rail;
+  lastRailLevelSeen = preSleepLevel;
+
+  // Re-arms future warnings only after the supply recovers.
+  if (rail >= RAIL_RECOVER_MV) {
+    railLowAlertLatched = false;
+    railBelowWarnStreak = 0;
+  }
+
+  // Gives one 3 second warning before sleep if the rail is low and the user hasnt already been warned.
+  if (preSleepLevel != 0 && !railLowAlertLatched) {
+    railLowAlertLatched = true;
+    Serial.println(F("Low supply before sleep: 3 s green/yellow alert, then sleep."));
+    printRailMilliVolts(rail);
+    Serial.flush();
+    runBatteryAlertBurst(preSleepLevel);
+  }
+
+  enterSleepNow();
+}
 // MEASUREMENT HELPERS
 // Runs one unlock/lock cycle for timing and current measurement.
 static void runOneCycleTest() {
@@ -1213,7 +1313,7 @@ static void printTimingSummary() {
   Serial.println(F(" ms"));
 }
 // SETUP/LOOP
-// Initializes hardware, firmware state, EEPROM data, and Serial commands.
+// Initializes hardware, code state, EEPROM data, and Serial commands.
 void setup() {
   Serial.begin(115200);
   ACSR |= _BV(ACD);
@@ -1242,7 +1342,8 @@ void setup() {
   Serial.println(F("  L        : lock"));
   Serial.println(F("  U        : unlock"));
   Serial.println(F("  R        : servo reset pulse"));
-  Serial.println(F("  B        : print 5V rail (Serial only, no buzzer/LED)"));
+  Serial.println(F("  B        : print 5V rail and battery latch debug"));
+  Serial.println(F("  Y        : force green/yellow low-battery alert, then sleep"));
   Serial.println(F("  P        : beep buzzer once"));
   Serial.println(F("  A        : stay awake for 60 s"));
   Serial.println(F("  X        : run 1 unlock-lock cycle"));
@@ -1261,6 +1362,7 @@ void loop() {
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) {
     return;
   }
+  maybeCheckBatteryAndSleep();
   enterSleepIfIdle();
   char key = getKeyEvent();
   if (key != 0) {
@@ -1290,7 +1392,8 @@ void loop() {
       if (key == '#') {
         if (enteredLen == 4) {
           uint8_t tmp[8];
-          for (uint8_t i = 0; i < 4; i++) tmp[i] = (uint8_t)enteredPassword[i];
+          for (uint8_t i = 0; i < 4; i++)
+            tmp[i] = (uint8_t)enteredPassword[i];
           if (savePasswordHash(tmp, 4)) {
             secureWipe(tmp, sizeof(tmp));
             Serial.println(F("Password saved."));
@@ -1329,7 +1432,8 @@ void loop() {
       lockedHashCount = 0;
       if (key == '#') {
         unlockHashCount++;
-        if (unlockHashCount >= 5) enterSavePasswordMode(STATE_UNLOCKED);
+        if (unlockHashCount >= 5)
+          enterSavePasswordMode(STATE_UNLOCKED);
       } 
       else {
         unlockHashCount = 0;
@@ -1348,14 +1452,18 @@ void loop() {
     // Submits the entered password when # is pressed.
     if (key == '#') {
       if (enteredLen == 0) {
-        if (lockedHashCount < 255) lockedHashCount++;
-        if (lockedHashCount >= 5) enterSavePasswordMode(STATE_LOCKED);
+        if (lockedHashCount < 255)
+          lockedHashCount++;
+        if (lockedHashCount >= 5)
+          enterSavePasswordMode(STATE_LOCKED);
         return;
       }
       if (enteredLen != 4) {
         clearEntered();
-        if (lockedHashCount < 255) lockedHashCount++;
-        if (lockedHashCount >= 5) enterSavePasswordMode(STATE_LOCKED);
+        if (lockedHashCount < 255)
+          lockedHashCount++;
+        if (lockedHashCount >= 5)
+          enterSavePasswordMode(STATE_LOCKED);
         return;
       }
       lockedHashCount = 0;
@@ -1383,7 +1491,8 @@ void loop() {
       line[0] = c;
       size_t n = Serial.readBytesUntil('\n', line + 1, sizeof(line) - 2);
       line[n + 1] = 0;
-      if (n && line[n] == '\r') line[n] = 0;
+      if (n && line[n] == '\r')
+        line[n] = 0;
       if (c == 'S' && line[1] == ' ') {
         const char* p = line + 2;
         uint8_t L = (uint8_t)strlen(p);
@@ -1392,7 +1501,8 @@ void loop() {
           return;
         }
         uint8_t tmp[8];
-        for (uint8_t i = 0; i < L; i++) tmp[i] = (uint8_t)p[i];
+        for (uint8_t i = 0; i < L; i++)
+          tmp[i] = (uint8_t)p[i];
         if (savePasswordHash(tmp, L)) {
           secureWipe(tmp, sizeof(tmp));
           Serial.println(F("Password saved."));
@@ -1435,6 +1545,19 @@ void loop() {
     }
     else if (c == 'B' || c == 'b') {
       printRailDiagnostic();
+      Serial.print(F("Battery latch: "));
+      Serial.println(railLowAlertLatched ? F("already warned") : F("ready"));
+      Serial.print(F("Low-read streak: "));
+      Serial.println(railBelowWarnStreak);
+      Serial.print(F("Last rail level: "));
+      Serial.println(lastRailLevelSeen);
+    }
+    else if (c == 'Y' || c == 'y') {
+      Serial.println(F("Forced low-battery alert: 3 s green/yellow, then sleep."));
+      Serial.flush();
+      railLowAlertLatched = true;
+      runBatteryAlertBurst(1);
+      enterSleepNow();
     }
     else if (c == 'P' || c == 'p') {
       buzzerBeepOnce();
