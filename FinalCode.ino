@@ -100,6 +100,8 @@ static uint32_t railAlertUntilMs = 0;
 static uint32_t buzzerNextMs = 0;
 // Tracks whether the buzzer tone is currently on during an alert burst.
 static bool buzzerToneOn = false;
+// Prevents repeating the pre-sleep 3 s rail alert on watchdog-only wake loops.
+static bool preSleepAlertPlayed = false;
 
 // KEYPAD
 // Maps detected row and column indices to keypad characters.
@@ -251,6 +253,7 @@ static void markActivity() {
   lastActivityTime = now;
   uiVisibleUntil = now + UI_HOLD_MS;
   sleepMessagePrinted = false;
+  preSleepAlertPlayed = false;
 }
 // Keeps the controller awake for a requested window.
 static void holdAwakeForMs(uint32_t ms) {
@@ -259,6 +262,7 @@ static void holdAwakeForMs(uint32_t ms) {
   lastActivityTime = now;
   uiVisibleUntil = now + UI_HOLD_MS;
   sleepMessagePrinted = false;
+  preSleepAlertPlayed = false;
 }
 // Clears the keypad password entry buffer.
 static void clearEntered() {
@@ -1066,6 +1070,7 @@ static void enterSleepIfIdle() {
   if (lockState == STATE_LOCKING || lockState == STATE_UNLOCKING) 
     return;
   // Right before sleep: one rail check; if low, fixed 3 s buzzer + LED (no holdAwake — preserves idle timer).
+  // Gate it so watchdog-only wake cycles do not replay the burst indefinitely.
   {
     uint16_t rail = readFiveVRailMilliVoltsAveraged();
     uint8_t preSleepLevel = 0;
@@ -1075,7 +1080,11 @@ static void enterSleepIfIdle() {
     else if (rail < RAIL_WARN_MV) {
       preSleepLevel = 1;
     }
-    if (preSleepLevel != 0) {
+    if (preSleepLevel != 0 && !preSleepAlertPlayed) {
+      // Reduce concurrent load during alert burst.
+      servoDetach();
+      servoPowerOff();
+      ledEvent = LED_EVENT_NONE;
       Serial.println(F("Low supply before sleep: 3 s alert, then sleep."));
       Serial.flush();
       startBatteryAlert(preSleepLevel, RAIL_ALERT_SLEEP_PRE_MS);
@@ -1086,7 +1095,9 @@ static void enterSleepIfIdle() {
         delay(2);
       }
       stopBatteryAlert();
+      preSleepAlertPlayed = true;
     }
+    if (preSleepLevel == 0) preSleepAlertPlayed = false;
   }
   wokeFromKeypad = false;
   wokeFromWDT = false;
